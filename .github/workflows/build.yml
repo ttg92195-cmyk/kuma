@@ -1,0 +1,49 @@
+name: Build Flutter APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐦 Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: 'stable'
+          cache: true
+
+      - name: 📦 Get dependencies
+        run: flutter pub get
+
+      - name: 🔍 Analyze code
+        run: flutter analyze --no-fatal-infos || true
+
+      - name: 🏗️ Build APK
+        run: flutter build apk --release
+
+      - name: 📤 Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kuma-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+
+      - name: 📋 Build info
+        run: |
+          echo "================================"
+          echo "🎮 KUMA - Build Complete!"
+          echo "================================"
+          echo "APK Size: $(du -h build/app/outputs/flutter-apk/app-release.apk | cut -f1)"
+          echo "Build Date: $(date)"
+          echo "================================"
