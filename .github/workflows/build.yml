@@ -29,18 +29,16 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+      - name: Create local.properties with Flutter SDK path
+        run: |
+          FLUTTER_SDK_PATH=$(dirname $(dirname $(readlink -f $(which flutter))))
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          echo "flutter.sdk=$FLUTTER_SDK_PATH" >> android/local.properties
+          echo "Created local.properties:"
+          cat android/local.properties
 
       - name: Get dependencies
         run: flutter pub get
-
-      - name: Verify Flutter config
-        run: |
-          flutter doctor -v
-          echo "Flutter SDK path: $(which flutter)"
-          echo "Local properties:"
-          cat android/local.properties || echo "No local.properties"
 
       - name: Analyze code
         run: flutter analyze --no-fatal-infos || true
