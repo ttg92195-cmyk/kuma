@@ -18,7 +18,7 @@ class Flashlight {
     this.isOn = true,
     this.batteryLevel = 100.0,
     this.drainRate = 2.0, // % per second
-    this.coneAngle = 0.5, // ~30 degrees half-angle
+    this.coneAngle = 1.2, // Wider flashlight cone for better visibility (~70 degrees)
     this.flickerTimer = 0.0,
     this.isFlickering = false,
   });

@@ -6,15 +6,11 @@ import 'package:flutter/material.dart';
 class RaycastEngine {
   static const double fov = 60.0 * pi / 180.0; // Field of View
   static const double halfFov = fov / 2.0;
-  static const int numRays = 320; // Number of rays to cast
+  static const int numRays = 240; // Reduced for better performance on mobile
   static const double maxDepth = 20.0; // Maximum rendering depth
   static const double stripWidth = 1.0; // Width of each ray strip
 
   /// Cast all rays and return wall strip data for rendering
-  /// [playerX], [playerY] - player position in map coordinates
-  /// [playerAngle] - player facing direction in radians
-  /// [map] - 2D map grid (0 = empty, 1+ = wall type)
-  /// [mapWidth], [mapHeight] - map dimensions
   static List<WallStrip> castRays(
     double playerX,
     double playerY,
@@ -143,6 +139,9 @@ class RaycastEngine {
       textureX = playerX + perpWallDist * rayDirX;
     }
 
+    // Safety: ensure distance is positive
+    if (perpWallDist <= 0) perpWallDist = 0.01;
+
     textureX -= textureX.floor(); // Get fractional part for texture mapping
 
     // Flip texture if needed
@@ -169,48 +168,52 @@ class RaycastEngine {
     bool flashlightOn,
     double coneAngle,
   ) {
-    if (!flashlightOn) return 0.03; // Very dim ambient light
+    if (!flashlightOn) return 0.15; // Ambient light - much brighter so walls are visible
 
     final angleDiff = _normalizeAngle(rayAngle - playerAngle);
     final absAngle = angleDiff.abs();
 
-    // Outside flashlight cone
-    if (absAngle > coneAngle / 2) return 0.03;
+    // Wider ambient light for better visibility
+    if (absAngle > coneAngle) return 0.12; // Outside cone but still some ambient
 
     // Within cone - intensity falls off from center
-    final coneFactor = 1.0 - (absAngle / (coneAngle / 2));
-    final distanceFactor = 1.0 / (1.0 + distance * distance * 0.1);
+    final coneFactor = 1.0 - (absAngle / coneAngle) * 0.5; // Less aggressive falloff
+    final distanceFactor = 1.0 / (1.0 + distance * distance * 0.03); // Gentler distance falloff
 
-    return (0.15 + 0.85 * coneFactor * distanceFactor).clamp(0.03, 1.0);
+    return (0.25 + 0.75 * coneFactor * distanceFactor).clamp(0.12, 1.0);
   }
 
   /// Calculate color for a wall based on wall type, side, and lighting
+  /// BRIGHTER colors so walls are actually visible on phone screens
   static Color getWallColor(int wallType, int side, double intensity) {
     Color baseColor;
 
     switch (wallType) {
-      case 1: // Dark concrete wall
-        baseColor = const Color(0xFF2A2A2A);
+      case 1: // Dark concrete wall - BRIGHTER
+        baseColor = const Color(0xFF6A6A6A);
         break;
       case 2: // Bloody wall
-        baseColor = const Color(0xFF3D1010);
+        baseColor = const Color(0xFF8B2020);
         break;
       case 3: // Rusty metal wall
-        baseColor = const Color(0xFF3D2A1A);
+        baseColor = const Color(0xFF7A5A3A);
         break;
       case 4: // Door frame (red tint)
-        baseColor = const Color(0xFF4A1515);
+        baseColor = const Color(0xFF8B3535);
         break;
       case 5: // Cracked wall
-        baseColor = const Color(0xFF252525);
+        baseColor = const Color(0xFF555555);
+        break;
+      case 6: // Exit door (special green glow)
+        baseColor = const Color(0xFF2A8B2A);
         break;
       default:
-        baseColor = const Color(0xFF1A1A1A);
+        baseColor = const Color(0xFF4A4A4A);
     }
 
     // Side shading (y-side walls are slightly darker)
     if (side == 1) {
-      intensity *= 0.7;
+      intensity *= 0.75;
     }
 
     return Color.lerp(const Color(0xFF000000), baseColor, intensity)!;
@@ -218,14 +221,14 @@ class RaycastEngine {
 
   /// Calculate floor color for a given position
   static Color getFloorColor(double distance, double intensity) {
-    const baseColor = Color(0xFF0D0D0D);
-    return Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.5)!;
+    const baseColor = Color(0xFF1A1A1A); // Brighter floor
+    return Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.7)!;
   }
 
   /// Calculate ceiling color for a given position
   static Color getCeilingColor(double distance, double intensity) {
-    const baseColor = Color(0xFF050505);
-    return Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.3)!;
+    const baseColor = Color(0xFF0F0F0F); // Slightly brighter ceiling
+    return Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.5)!;
   }
 
   static double _normalizeAngle(double angle) {

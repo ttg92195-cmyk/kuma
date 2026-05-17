@@ -406,37 +406,39 @@ class RaycastPainter extends CustomPainter {
   }
 
   /// Draw vignette (darkened edges for found-footage feel)
+  /// Reduced intensity so walls are actually visible
   void _drawVignette(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
 
     final paint = Paint()
       ..shader = RadialGradient(
         center: Alignment.center,
-        radius: 0.6,
+        radius: 0.8, // Wider radius - less dark area
         colors: [
           Colors.transparent,
+          Colors.black.withOpacity(0.1),
           Colors.black.withOpacity(0.3),
-          Colors.black.withOpacity(0.7),
-          Colors.black.withOpacity(0.9),
+          Colors.black.withOpacity(0.5),
         ],
-        stops: const [0.0, 0.5, 0.8, 1.0],
+        stops: const [0.0, 0.6, 0.85, 1.0],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
   }
 
   /// Draw noise/grain overlay for found-footage effect
+  /// Reduced so it doesn't obscure the 3D view
   void _drawNoiseOverlay(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
 
     final rng = math.Random(42);
     final noisePaint = Paint();
 
-    // Sparse noise particles for performance
-    for (var i = 0; i < 200; i++) {
+    // Very sparse noise particles
+    for (var i = 0; i < 100; i++) {
       final x = rng.nextDouble() * size.width;
       final y = rng.nextDouble() * size.height;
-      final alpha = rng.nextDouble() * 0.05;
+      final alpha = rng.nextDouble() * 0.03;
 
       noisePaint.color = Colors.white.withOpacity(alpha);
       canvas.drawOval(
@@ -445,9 +447,9 @@ class RaycastPainter extends CustomPainter {
       );
     }
 
-    // Scanline effect
-    final scanPaint = Paint()..color = Colors.black.withOpacity(0.03);
-    for (var y = 0.0; y < size.height; y += 3) {
+    // Very subtle scanline effect
+    final scanPaint = Paint()..color = Colors.black.withOpacity(0.02);
+    for (var y = 0.0; y < size.height; y += 4) {
       canvas.drawLine(
         Offset(0, y),
         Offset(size.width, y),

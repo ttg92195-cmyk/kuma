@@ -67,19 +67,19 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Only pause when the app truly goes to background (not during orientation changes)
-    // Only pause if we've actually started playing
-    if (!_hasStartedPlaying) return;
-
-    if (state == AppLifecycleState.paused) {
-      // App went to background - pause the game
-      final gameState = context.read<GameState>();
-      if (gameState.phase == GamePhase.playing) {
-        gameState.pauseGame();
-      }
-    }
-    // Don't pause on 'inactive' - that happens during orientation changes
-    // and when the user touches the notification bar, etc.
+    // DISABLED auto-pause from lifecycle events completely.
+    // This was causing the game to immediately pause after START GAME
+    // because the orientation change triggers AppLifecycleState.paused.
+    // The user can manually pause by tapping the pause button.
+    // 
+    // If you want to re-enable auto-pause, use a delay:
+    // if (state == AppLifecycleState.paused && _hasStartedPlaying) {
+    //   Future.delayed(const Duration(seconds: 1), () {
+    //     if (mounted && context.read<GameState>().phase == GamePhase.playing) {
+    //       context.read<GameState>().pauseGame();
+    //     }
+    //   });
+    // }
   }
 
   void _startGameLoop() {
@@ -117,14 +117,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       child: Scaffold(
         body: Consumer<GameState>(
           builder: (context, gameState, _) {
-            // Start ambient audio when game starts playing
-            if (gameState.phase == GamePhase.playing && !_hasStartedPlaying) {
+            // Track that we've started playing (for potential future use)
+            if (gameState.phase == GamePhase.playing) {
               _hasStartedPlaying = true;
-              try {
-                _audioManager.startAmbient();
-              } catch (e) {
-                debugPrint('Ambient audio error (safe): $e');
-              }
             }
 
             if (gameState.phase == GamePhase.won) {
