@@ -23,7 +23,7 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
-  late Timer _gameLoop;
+  Timer? _gameLoop;
   final AudioManager _audioManager = AudioManager();
 
   // Touch look tracking
@@ -35,43 +35,73 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   double _moveX = 0.0;
   double _moveY = 0.0;
 
+  // Track if we've actually started playing (to avoid auto-pause on first render)
+  bool _hasStartedPlaying = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startGameLoop();
-    _audioManager.init();
-    _audioManager.startAmbient();
+    // Initialize audio safely - won't crash even without audio files
+    _initAudioSafely();
+  }
+
+  /// Initialize audio with full error handling
+  Future<void> _initAudioSafely() async {
+    try {
+      await _audioManager.init();
+      // Don't auto-start ambient - it will be called when game starts
+    } catch (e) {
+      debugPrint('AudioManager: Init failed safely - $e');
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _gameLoop.cancel();
+    _gameLoop?.cancel();
     _audioManager.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Only pause when the app truly goes to background (not during orientation changes)
+    // Only pause if we've actually started playing
+    if (!_hasStartedPlaying) return;
+
     if (state == AppLifecycleState.paused) {
-      context.read<GameState>().pauseGame();
+      // App went to background - pause the game
+      final gameState = context.read<GameState>();
+      if (gameState.phase == GamePhase.playing) {
+        gameState.pauseGame();
+      }
     }
+    // Don't pause on 'inactive' - that happens during orientation changes
+    // and when the user touches the notification bar, etc.
   }
 
   void _startGameLoop() {
+    _gameLoop?.cancel();
     _gameLoop = Timer.periodic(
       const Duration(milliseconds: 33), // ~30 FPS
       (_) {
+        if (!mounted) return;
         final gameState = context.read<GameState>();
         if (gameState.phase == GamePhase.playing) {
+          _hasStartedPlaying = true;
           gameState.update(0.033);
 
-          // Audio updates
-          if (gameState.player.isMoving) {
-            _audioManager.playFootstep();
+          // Audio updates (safe - won't crash without audio files)
+          try {
+            if (gameState.player.isMoving) {
+              _audioManager.playFootstep();
+            }
+            _audioManager.updateAmbientIntensity(gameState.ambientIntensity);
+          } catch (e) {
+            debugPrint('Audio update error (safe): $e');
           }
-          _audioManager.updateAmbientIntensity(gameState.ambientIntensity);
         }
       },
     );
@@ -87,6 +117,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       child: Scaffold(
         body: Consumer<GameState>(
           builder: (context, gameState, _) {
+            // Start ambient audio when game starts playing
+            if (gameState.phase == GamePhase.playing && !_hasStartedPlaying) {
+              _hasStartedPlaying = true;
+              try {
+                _audioManager.startAmbient();
+              } catch (e) {
+                debugPrint('Ambient audio error (safe): $e');
+              }
+            }
+
             if (gameState.phase == GamePhase.won) {
               return _buildWinScreen(gameState);
             }
@@ -186,25 +226,33 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     },
                     onFlashlightToggle: () {
                       gameState.toggleFlashlight();
-                      _audioManager.playFlashlightToggle();
+                      try {
+                        _audioManager.playFlashlightToggle();
+                      } catch (e) {
+                        debugPrint('Flashlight audio error (safe): $e');
+                      }
                     },
                     onInteract: () {
                       gameState.interact();
                       final obj = gameState.nearbyObject;
                       if (obj != null) {
-                        switch (obj.type) {
-                          case InteractionType.door:
-                            _audioManager.playDoorOpen();
-                            break;
-                          case InteractionType.item:
-                            if (obj.id.startsWith('key_')) {
-                              _audioManager.playKeyPickup();
-                            } else {
-                              _audioManager.playItemPickup();
-                            }
-                            break;
-                          case InteractionType.note:
-                            break;
+                        try {
+                          switch (obj.type) {
+                            case InteractionType.door:
+                              _audioManager.playDoorOpen();
+                              break;
+                            case InteractionType.item:
+                              if (obj.id.startsWith('key_')) {
+                                _audioManager.playKeyPickup();
+                              } else {
+                                _audioManager.playItemPickup();
+                              }
+                              break;
+                            case InteractionType.note:
+                              break;
+                          }
+                        } catch (e) {
+                          debugPrint('Interact audio error (safe): $e');
                         }
                       }
                     },

@@ -73,6 +73,9 @@ class GameState extends ChangeNotifier {
 
   /// Initialize a new game
   void startGame() {
+    // Reset the map to original state
+    currentMap = GameMap.hospitalMap.map((row) => List<int>.from(row)).toList();
+
     player.reset();
     flashlight.reset();
     gameTime = 0.0;
@@ -98,7 +101,36 @@ class GameState extends ChangeNotifier {
       obj.isOpened = false;
     }
 
+    // Validate spawn position - ensure player is on a walkable tile
+    _validateSpawnPosition();
+
     notifyListeners();
+  }
+
+  /// Validate that the player's spawn position is on a walkable tile
+  void _validateSpawnPosition() {
+    if (!GameMap.isWalkable(player.x, player.y, currentMap)) {
+      debugPrint('WARNING: Player spawn at (${player.x}, ${player.y}) is inside a wall! Finding valid position...');
+
+      // Search for a nearby walkable position
+      for (int radius = 1; radius < 10; radius++) {
+        for (int dx = -radius; dx <= radius; dx++) {
+          for (int dy = -radius; dy <= radius; dy++) {
+            final testX = GameMap.spawnX + dx;
+            final testY = GameMap.spawnY + dy;
+            if (testX > 0 && testX < GameMap.width &&
+                testY > 0 && testY < GameMap.height &&
+                GameMap.isWalkable(testX, testY, currentMap)) {
+              player.x = testX + 0.5;
+              player.y = testY + 0.5;
+              debugPrint('Player repositioned to (${player.x}, ${player.y})');
+              return;
+            }
+          }
+        }
+      }
+      debugPrint('CRITICAL: Could not find valid spawn position!');
+    }
   }
 
   /// Main game update loop

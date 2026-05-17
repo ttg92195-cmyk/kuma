@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'game_map.dart';
 
 /// Player state and movement controller
 class Player {
@@ -25,9 +26,9 @@ class Player {
   double maxStamina;
 
   Player({
-    this.x = 1.5,
-    this.y = 1.5,
-    this.angle = 0.0,
+    double? x,
+    double? y,
+    double? angle,
     this.moveSpeed = 0.04,
     this.rotationSpeed = 0.04,
     this.isRunning = false,
@@ -37,7 +38,10 @@ class Player {
     this.health = 100.0,
     this.stamina = 100.0,
     this.maxStamina = 100.0,
-  })  : currentMoveSpeed = moveSpeed,
+  })  : x = x ?? GameMap.spawnX,
+        y = y ?? GameMap.spawnY,
+        angle = angle ?? GameMap.spawnAngle,
+        currentMoveSpeed = moveSpeed,
         currentRotSpeed = rotationSpeed;
 
   /// Move player forward/backward
@@ -185,11 +189,11 @@ class Player {
     bobAmount *= 0.9; // Smoothly stop bobbing
   }
 
-  /// Reset player to spawn position
+  /// Reset player to spawn position (from GameMap constants)
   void reset() {
-    x = 1.5;
-    y = 1.5;
-    angle = 0.0;
+    x = GameMap.spawnX;
+    y = GameMap.spawnY;
+    angle = GameMap.spawnAngle;
     health = 100.0;
     stamina = 100.0;
     isRunning = false;

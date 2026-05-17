@@ -12,9 +12,21 @@ class RaycastRenderer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: RaycastPainter(gameState: gameState),
-      size: Size.infinite,
+    // Use LayoutBuilder to ensure we have real dimensions before painting
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Guard against zero or invalid sizes
+        if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0 ||
+            constraints.maxWidth.isNaN || constraints.maxHeight.isNaN ||
+            constraints.maxWidth.isInfinite || constraints.maxHeight.isInfinite) {
+          // Return black container while waiting for valid size
+          return Container(color: const Color(0xFF000000));
+        }
+        return CustomPaint(
+          painter: RaycastPainter(gameState: gameState),
+          size: Size(constraints.maxWidth, constraints.maxHeight),
+        );
+      },
     );
   }
 }
@@ -27,6 +39,17 @@ class RaycastPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Guard against invalid canvas size
+    if (size.width <= 0 || size.height <= 0 ||
+        size.width.isNaN || size.height.isNaN) {
+      // Draw black screen if canvas is not ready
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, 1, 1),
+        Paint()..color = const Color(0xFF000000),
+      );
+      return;
+    }
+
     final player = gameState.player;
     final flashlight = gameState.flashlight;
 
@@ -352,7 +375,7 @@ class RaycastPainter extends CustomPainter {
 
     // Glow effect
     final glowPaint = Paint()
-      ..color = Color.lerp(const Color(0x00000000), itemColor.withOpacity(0.3), fogFactor)!;;
+      ..color = Color.lerp(const Color(0x00000000), itemColor.withOpacity(0.3), fogFactor)!;
     canvas.drawOval(
       Rect.fromLTWH(x, y + h * 0.1 + floatOffset, w, h * 0.8),
       glowPaint,
@@ -384,9 +407,7 @@ class RaycastPainter extends CustomPainter {
 
   /// Draw vignette (darkened edges for found-footage feel)
   void _drawVignette(Canvas canvas, Size size) {
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
-    final maxRadius = math.sqrt(centerX * centerX + centerY * centerY);
+    if (size.width <= 0 || size.height <= 0) return;
 
     final paint = Paint()
       ..shader = RadialGradient(
@@ -406,6 +427,8 @@ class RaycastPainter extends CustomPainter {
 
   /// Draw noise/grain overlay for found-footage effect
   void _drawNoiseOverlay(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
     final rng = math.Random(42);
     final noisePaint = Paint();
 

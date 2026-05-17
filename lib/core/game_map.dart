@@ -98,11 +98,21 @@ class GameMap {
         ),
       ];
 
+  /// Check if a position is walkable
+  /// Uses a small buffer (0.2) around the player to prevent wall clipping
   static bool isWalkable(double x, double y, List<List<int>> map) {
-    final mapX = x.floor();
-    final mapY = y.floor();
-    if (mapX < 0 || mapX >= width || mapY < 0 || mapY >= height) return false;
-    return map[mapY][mapX] == 0;
+    const buffer = 0.2; // Collision buffer to prevent clipping into walls
+
+    // Check all four corners of the player's bounding box
+    for (final dx in [-buffer, buffer]) {
+      for (final dy in [-buffer, buffer]) {
+        final mapX = (x + dx).floor();
+        final mapY = (y + dy).floor();
+        if (mapX < 0 || mapX >= width || mapY < 0 || mapY >= height) return false;
+        if (map[mapY][mapX] != 0) return false;
+      }
+    }
+    return true;
   }
 
   static int getWallAt(double x, double y, List<List<int>> map) {

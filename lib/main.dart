@@ -1,11 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'core/game_state.dart';
 import 'screens/main_menu_screen.dart';
 import 'screens/game_screen.dart';
 
-void main() {
+void main() async {
+  // 1. Ensure Flutter engine is ready
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 2. Lock orientation to Landscape only (like Mobile Legends)
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+
+  // 3. Hide status bar & navigation bar for full immersive screen
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
   runApp(
     ChangeNotifierProvider(
       create: (_) => GameState(),
