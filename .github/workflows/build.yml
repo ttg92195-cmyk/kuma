@@ -13,42 +13,52 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: ☕ Setup Java 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: 🐦 Install Flutter
+      - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.0'
           channel: 'stable'
           cache: true
 
-      - name: 📦 Get dependencies
+      - name: Create local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: 🔍 Analyze code
+      - name: Verify Flutter config
+        run: |
+          flutter doctor -v
+          echo "Flutter SDK path: $(which flutter)"
+          echo "Local properties:"
+          cat android/local.properties || echo "No local.properties"
+
+      - name: Analyze code
         run: flutter analyze --no-fatal-infos || true
 
-      - name: 🏗️ Build APK
-        run: flutter build apk --release
+      - name: Build APK
+        run: flutter build apk --release --no-shrink
 
-      - name: 📤 Upload APK artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: kuma-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
 
-      - name: 📋 Build info
+      - name: Build info
         run: |
           echo "================================"
-          echo "🎮 KUMA - Build Complete!"
+          echo "KUMA - Build Complete!"
           echo "================================"
           echo "APK Size: $(du -h build/app/outputs/flutter-apk/app-release.apk | cut -f1)"
           echo "Build Date: $(date)"
