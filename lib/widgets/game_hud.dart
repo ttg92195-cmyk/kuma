@@ -1,0 +1,181 @@
+import 'package:flutter/material.dart';
+
+/// HUD overlay showing game status info
+class GameHUD extends StatelessWidget {
+  final int score;
+  final String gameTime;
+  final double stamina;
+  final double health;
+  final Set<String> inventory;
+
+  const GameHUD({
+    super.key,
+    required this.score,
+    required this.gameTime,
+    required this.stamina,
+    required this.health,
+    required this.inventory,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: 80,
+      left: 20,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Score
+          _hudItem(
+            icon: Icons.star,
+            label: 'SCORE',
+            value: score.toString(),
+            color: const Color(0xFFFFD700),
+          ),
+          const SizedBox(height: 6),
+          // Time
+          _hudItem(
+            icon: Icons.access_time,
+            label: 'TIME',
+            value: gameTime,
+            color: Colors.white38,
+          ),
+          const SizedBox(height: 6),
+          // Stamina bar
+          _staminaBar(),
+          const SizedBox(height: 6),
+          // Health bar
+          _healthBar(),
+          // Inventory indicators
+          if (inventory.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _inventoryDisplay(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _hudItem({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: color, size: 12),
+        const SizedBox(width: 4),
+        Text(
+          '$label: ',
+          style: TextStyle(
+            color: Colors.white38,
+            fontSize: 10,
+            fontFamily: 'Courier',
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            color: color,
+            fontSize: 12,
+            fontFamily: 'Courier',
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _staminaBar() {
+    final staminaColor = stamina > 50
+        ? Colors.green
+        : stamina > 20
+            ? Colors.yellow
+            : Colors.red;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.directions_run, color: Colors.white24, size: 12),
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 60,
+          height: 4,
+          child: LinearProgressIndicator(
+            value: stamina / 100.0,
+            backgroundColor: Colors.white10,
+            valueColor: AlwaysStoppedAnimation(staminaColor),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _healthBar() {
+    final healthColor = health > 50
+        ? Colors.green
+        : health > 20
+            ? Colors.yellow
+            : Colors.red;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.favorite, color: Colors.white24, size: 12),
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 60,
+          height: 4,
+          child: LinearProgressIndicator(
+            value: health / 100.0,
+            backgroundColor: Colors.white10,
+            valueColor: AlwaysStoppedAnimation(healthColor),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _inventoryDisplay() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.white10, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'INVENTORY',
+            style: TextStyle(
+              color: Colors.white24,
+              fontSize: 8,
+              fontFamily: 'Courier',
+            ),
+          ),
+          const SizedBox(height: 2),
+          Wrap(
+            spacing: 4,
+            runSpacing: 2,
+            children: inventory.map((item) {
+              IconData icon;
+              Color color;
+              if (item.startsWith('key_')) {
+                icon = Icons.vpn_key;
+                color = const Color(0xFFFFD700);
+              } else {
+                icon = Icons.battery_charging_full;
+                color = Colors.green;
+              }
+              return Icon(icon, color: color, size: 14);
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}

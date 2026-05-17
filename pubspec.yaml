@@ -1,0 +1,28 @@
+name: kuma
+description: 3D Horror Found-Footage Game - First-Person Horror Experience
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  audioplayers: ^5.2.1
+  sensors_plus: ^4.0.1
+  vibration: ^1.8.4
+  shared_preferences: ^2.2.2
+  provider: ^6.1.1
+  flutter_svg: ^2.0.9
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/audio/
+    - assets/textures/
