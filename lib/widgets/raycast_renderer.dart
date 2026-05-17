@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../core/raycast_engine.dart';
 import '../core/game_state.dart';
+import '../core/game_map.dart' show InteractionType;
 
 /// Main 3D raycasting renderer widget using CustomPainter
 class RaycastRenderer extends StatelessWidget {

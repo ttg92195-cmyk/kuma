@@ -16,7 +16,7 @@ class GameState extends ChangeNotifier {
   GamePhase phase;
   double gameTime;
   int score;
-  Set<String> inventory;
+  Set<String> inventory = {};
   String? currentMessage;
   double messageTimer;
   bool showNoteOverlay;
@@ -196,7 +196,7 @@ class GameState extends ChangeNotifier {
   void _interactDoor(InteractiveObject obj) {
     // Check if door requires a key
     if (obj.requiredKey != null && !inventory.contains(obj.requiredKey)) {
-      showMessage('This door is locked. You need: ${obj.requiredKey.replaceAll('_', ' ')}');
+      showMessage('This door is locked. You need: ${obj.requiredKey?.replaceAll('_', ' ') ?? 'unknown key'}');
       return;
     }
 

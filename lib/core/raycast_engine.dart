@@ -1,5 +1,5 @@
 import 'dart:math';
-import 'dart:ui';
+import 'package:flutter/material.dart';
 
 /// Raycasting 3D Engine - First-Person Horror View
 /// Wolfenstein/Doom style raycasting renderer for Flutter
@@ -213,19 +213,19 @@ class RaycastEngine {
       intensity *= 0.7;
     }
 
-    return Color.lerp(Colors.black, baseColor, intensity)!;
+    return Color.lerp(const Color(0xFF000000), baseColor, intensity)!;
   }
 
   /// Calculate floor color for a given position
   static Color getFloorColor(double distance, double intensity) {
     const baseColor = Color(0xFF0D0D0D);
-    return Color.lerp(Colors.black, baseColor, intensity * 0.5)!;
+    return Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.5)!;
   }
 
   /// Calculate ceiling color for a given position
   static Color getCeilingColor(double distance, double intensity) {
     const baseColor = Color(0xFF050505);
-    return Color.lerp(Colors.black, baseColor, intensity * 0.3)!;
+    return Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.3)!;
   }
 
   static double _normalizeAngle(double angle) {

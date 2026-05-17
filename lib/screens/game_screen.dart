@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/game_state.dart';
+import '../core/game_map.dart' show InteractionType;
 import '../core/audio_manager.dart';
 import '../widgets/raycast_renderer.dart';
 import '../widgets/camera_overlay.dart';

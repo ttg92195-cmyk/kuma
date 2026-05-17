@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/game_state.dart';
+import '../core/game_map.dart' show InteractionType;
 
 /// Interaction prompt widget - shows "Open", "Pick up", "Read" when near objects
 class InteractionPrompt extends StatelessWidget {
