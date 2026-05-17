@@ -29,13 +29,22 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Create local.properties with Flutter SDK path
+      - name: Debug Flutter SDK path
         run: |
-          FLUTTER_SDK_PATH=$(dirname $(dirname $(readlink -f $(which flutter))))
+          echo "which flutter: $(which flutter)"
+          echo "FLUTTER_ROOT: $FLUTTER_ROOT"
+          echo "flutter path resolved: $(dirname $(dirname $(which flutter)))"
+          ls -la $(which flutter)
+
+      - name: Create local.properties
+        run: |
+          FLUTTER_SDK_PATH=$(dirname $(dirname $(which flutter)))
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
           echo "flutter.sdk=$FLUTTER_SDK_PATH" >> android/local.properties
-          echo "Created local.properties:"
+          echo "--- local.properties ---"
           cat android/local.properties
+          echo "--- Verify Flutter SDK dir ---"
+          ls "$FLUTTER_SDK_PATH/packages/flutter_tools/gradle" || echo "ERROR: Flutter tools gradle dir NOT FOUND"
 
       - name: Get dependencies
         run: flutter pub get
