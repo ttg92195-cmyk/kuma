@@ -1,29 +1,82 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import '../core/raycast_engine.dart';
 import '../core/game_state.dart';
 import '../core/game_map.dart' show InteractionType;
 
-/// Main 3D raycasting renderer widget using CustomPainter
-class RaycastRenderer extends StatelessWidget {
+/// Main 3D raycasting renderer widget
+/// CRITICAL FIX: Uses StatefulWidget with Ticker for reliable continuous rendering.
+/// The old StatelessWidget approach relied on Consumer rebuilds which were unreliable.
+class RaycastRenderer extends StatefulWidget {
   final GameState gameState;
 
   const RaycastRenderer({super.key, required this.gameState});
 
   @override
+  State<RaycastRenderer> createState() => _RaycastRendererState();
+}
+
+class _RaycastRendererState extends State<RaycastRenderer>
+    with SingleTickerProviderStateMixin {
+  late Ticker _ticker;
+  int _frameCount = 0;
+  double _fps = 0;
+  DateTime _lastFpsTime = DateTime.now();
+  int _fpsFrameCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Create a Ticker that fires every frame (vsync) to ensure
+    // the CustomPaint repaints continuously, independent of Provider rebuilds
+    _ticker = createTicker(_onTick);
+    _ticker.start();
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  void _onTick(Duration elapsed) {
+    if (!mounted) return;
+    _frameCount++;
+    _fpsFrameCount++;
+
+    // Calculate FPS every second
+    final now = DateTime.now();
+    final diff = now.difference(_lastFpsTime).inMilliseconds;
+    if (diff >= 1000) {
+      _fps = _fpsFrameCount * 1000 / diff;
+      _fpsFrameCount = 0;
+      _lastFpsTime = now;
+    }
+
+    // Force a repaint by calling setState
+    setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // Use LayoutBuilder to ensure we have real dimensions before painting
     return LayoutBuilder(
       builder: (context, constraints) {
         // Guard against zero or invalid sizes
-        if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0 ||
-            constraints.maxWidth.isNaN || constraints.maxHeight.isNaN ||
-            constraints.maxWidth.isInfinite || constraints.maxHeight.isInfinite) {
-          // Return black container while waiting for valid size
-          return Container(color: const Color(0xFF000000));
+        if (constraints.maxWidth <= 0 ||
+            constraints.maxHeight <= 0 ||
+            constraints.maxWidth.isNaN ||
+            constraints.maxHeight.isNaN ||
+            constraints.maxWidth.isInfinite ||
+            constraints.maxHeight.isInfinite) {
+          return Container(color: Colors.black);
         }
         return CustomPaint(
-          painter: RaycastPainter(gameState: gameState),
+          painter: RaycastPainter(
+            gameState: widget.gameState,
+            fps: _fps,
+            frameCount: _frameCount,
+          ),
           size: Size(constraints.maxWidth, constraints.maxHeight),
         );
       },
@@ -34,24 +87,54 @@ class RaycastRenderer extends StatelessWidget {
 /// CustomPainter that renders the 3D raycasting view
 class RaycastPainter extends CustomPainter {
   final GameState gameState;
+  final double fps;
+  final int frameCount;
 
-  RaycastPainter({required this.gameState});
+  RaycastPainter({
+    required this.gameState,
+    this.fps = 0,
+    this.frameCount = 0,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Guard against invalid canvas size
-    if (size.width <= 0 || size.height <= 0 ||
-        size.width.isNaN || size.height.isNaN) {
-      // Draw black screen if canvas is not ready
+    try {
+      _doPaint(canvas, size);
+    } catch (e) {
+      // If rendering fails, draw error indicator instead of silent black screen
       canvas.drawRect(
-        Rect.fromLTWH(0, 0, 1, 1),
-        Paint()..color = const Color(0xFF000000),
+        Rect.fromLTWH(0, 0, size.width, size.height),
+        Paint()..color = const Color(0xFF880000),
       );
+      final errorPainter = TextPainter(
+        text: TextSpan(
+          text: 'RENDER ERROR: $e',
+          style: const TextStyle(color: Colors.white, fontSize: 10),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      errorPainter.layout(maxWidth: size.width - 20);
+      errorPainter.paint(canvas, const Offset(10, 10));
+    }
+  }
+
+  void _doPaint(Canvas canvas, Size size) {
+    // Guard against invalid canvas size
+    if (size.width <= 0 ||
+        size.height <= 0 ||
+        size.width.isNaN ||
+        size.height.isNaN) {
       return;
     }
 
     final player = gameState.player;
     final flashlight = gameState.flashlight;
+
+    // Fill entire canvas black first (background)
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = const Color(0xFF000000),
+    );
 
     // Cast all rays
     final strips = RaycastEngine.castRays(
@@ -63,15 +146,15 @@ class RaycastPainter extends CustomPainter {
       gameState.currentMap.length,
     );
 
-    // Draw ceiling (dark gradient)
-    final ceilingPaint = Paint()..color = const Color(0xFF020202);
+    // Draw ceiling - MUCH brighter so you can see the 3D space
+    final ceilingPaint = Paint()..color = const Color(0xFF0D0D12);
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height / 2),
       ceilingPaint,
     );
 
-    // Draw floor (slightly lighter)
-    final floorPaint = Paint()..color = const Color(0xFF080808);
+    // Draw floor - brighter so you can see depth
+    final floorPaint = Paint()..color = const Color(0xFF14141A);
     canvas.drawRect(
       Rect.fromLTWH(0, size.height / 2, size.width, size.height / 2),
       floorPaint,
@@ -86,12 +169,9 @@ class RaycastPainter extends CustomPainter {
       // Calculate wall height based on distance
       final wallHeight = size.height / strip.distance;
 
-      // Apply head bob
-      final bobOffset = player.bobAmount;
-
-      // Wall top and bottom positions
-      final wallTop = (size.height / 2 - wallHeight / 2) + bobOffset;
-      final wallBottom = (size.height / 2 + wallHeight / 2) + bobOffset;
+      // Wall top and bottom positions (no head bob - it was causing issues)
+      final wallTop = (size.height / 2 - wallHeight / 2);
+      final wallBottom = (size.height / 2 + wallHeight / 2);
 
       // Calculate flashlight intensity for this strip
       final lightIntensity = RaycastEngine.calculateFlashlightIntensity(
@@ -99,7 +179,8 @@ class RaycastPainter extends CustomPainter {
         player.angle,
         strip.distance,
         flashlight.isOn && !flashlight.isFlickering,
-        flashlight.coneAngle * (flashlight.batteryLevel / 100.0).clamp(0.3, 1.0),
+        flashlight.coneAngle *
+            (flashlight.batteryLevel / 100.0).clamp(0.3, 1.0),
       );
 
       // Get wall color with lighting
@@ -110,9 +191,10 @@ class RaycastPainter extends CustomPainter {
       );
 
       // Add distance fog
-      final fogFactor = (1.0 - strip.distance / RaycastEngine.maxDepth)
-          .clamp(0.0, 1.0);
-      wallColor = Color.lerp(const Color(0xFF000000), wallColor, fogFactor)!;
+      final fogFactor =
+          (1.0 - strip.distance / RaycastEngine.maxDepth).clamp(0.0, 1.0);
+      wallColor =
+          Color.lerp(const Color(0xFF000000), wallColor, fogFactor)!;
 
       // Draw wall strip
       final wallPaint = Paint()..color = wallColor;
@@ -125,31 +207,6 @@ class RaycastPainter extends CustomPainter {
         ),
         wallPaint,
       );
-
-      // Add texture pattern effect (horizontal lines for concrete)
-      if (strip.wallType == 1 && lightIntensity > 0.1) {
-        _drawWallTexture(
-          canvas,
-          strip,
-          wallTop,
-          wallBottom,
-          stripPixelWidth,
-          lightIntensity,
-          size,
-        );
-      }
-
-      // Blood drip effect for bloody walls
-      if (strip.wallType == 2 && lightIntensity > 0.05) {
-        _drawBloodEffect(
-          canvas,
-          strip,
-          wallTop,
-          wallBottom,
-          stripPixelWidth,
-          lightIntensity,
-        );
-      }
 
       // Draw floor gradient (distance-based)
       _drawFloorGradient(
@@ -177,11 +234,8 @@ class RaycastPainter extends CustomPainter {
     // Draw interactive object sprites
     _drawObjectSprites(canvas, size, strips, stripPixelWidth);
 
-    // Draw vignette overlay (darker edges)
+    // Draw vignette overlay - very subtle, doesn't obscure walls
     _drawVignette(canvas, size);
-
-    // Draw noise/grain overlay for found-footage effect
-    _drawNoiseOverlay(canvas, size);
 
     // Draw jumpscare flash
     if (gameState.jumpscareActive) {
@@ -191,67 +245,9 @@ class RaycastPainter extends CustomPainter {
         jumpPaint,
       );
     }
-  }
 
-  /// Draw wall texture pattern
-  void _drawWallTexture(
-    Canvas canvas,
-    WallStrip strip,
-    double wallTop,
-    double wallBottom,
-    double stripWidth,
-    double intensity,
-    Size size,
-  ) {
-    final lineSpacing = (wallBottom - wallTop) / 8;
-    if (lineSpacing < 3) return;
-
-    final linePaint = Paint()
-      ..color = Color.lerp(
-        Colors.transparent,
-        const Color(0xFF1A1A1A),
-        intensity * 0.3,
-      )!
-      ..strokeWidth = 1;
-
-    for (var y = wallTop + lineSpacing; y < wallBottom; y += lineSpacing) {
-      canvas.drawLine(
-        Offset(strip.rayIndex * stripWidth, y),
-        Offset((strip.rayIndex + 1) * stripWidth, y),
-        linePaint,
-      );
-    }
-  }
-
-  /// Draw blood drip effect on bloody walls
-  void _drawBloodEffect(
-    Canvas canvas,
-    WallStrip strip,
-    double wallTop,
-    double wallBottom,
-    double stripWidth,
-    double intensity,
-  ) {
-    final rng = math.Random(strip.hitX.toInt() * 100 + strip.hitY.toInt());
-    final numDrips = rng.nextInt(3) + 1;
-
-    for (var i = 0; i < numDrips; i++) {
-      final dripX = strip.rayIndex * stripWidth + rng.nextDouble() * stripWidth;
-      final dripStart = wallTop + (wallBottom - wallTop) * rng.nextDouble() * 0.3;
-      final dripLength = (wallBottom - wallTop) * (0.2 + rng.nextDouble() * 0.5);
-
-      final bloodPaint = Paint()
-        ..color = Color.lerp(
-          Colors.transparent,
-          const Color(0xFF660000),
-          intensity * 0.6,
-        )!;
-
-      canvas.drawRect(
-        Rect.fromLTWH(dripX, dripStart, stripWidth * 0.5, dripLength),
-        bloodPaint,
-      );
-    }
+    // ALWAYS draw debug info so we can verify rendering is working
+    _drawDebugInfo(canvas, size);
   }
 
   /// Draw floor gradient based on distance
@@ -313,46 +309,55 @@ class RaycastPainter extends CustomPainter {
       if (angleToObj.abs() > RaycastEngine.halfFov + 0.1) continue;
 
       // Screen position
-      final screenX = size.width / 2 + (angleToObj / RaycastEngine.halfFov) * (size.width / 2);
+      final screenX = size.width / 2 +
+          (angleToObj / RaycastEngine.halfFov) * (size.width / 2);
       final spriteHeight = size.height / distance * 0.3;
       final spriteWidth = spriteHeight * 0.6;
 
       // Check if object is behind a wall (simple occlusion)
-      final rayIndex = (screenX / stripWidth).floor().clamp(0, strips.length - 1);
+      final rayIndex =
+          (screenX / stripWidth).floor().clamp(0, strips.length - 1);
       if (strips[rayIndex].distance < distance) continue;
 
       // Draw sprite based on type
-      final spriteY = size.height / 2 - spriteHeight / 2 + gameState.player.bobAmount;
+      final spriteY = size.height / 2 - spriteHeight / 2;
 
       switch (obj.type) {
         case InteractionType.door:
-          _drawDoorSprite(canvas, screenX - spriteWidth / 2, spriteY, spriteWidth, spriteHeight, distance);
+          _drawDoorSprite(canvas, screenX - spriteWidth / 2, spriteY,
+              spriteWidth, spriteHeight, distance);
           break;
         case InteractionType.item:
-          _drawItemSprite(canvas, screenX - spriteWidth / 2, spriteY, spriteWidth, spriteHeight, obj.id, distance);
+          _drawItemSprite(canvas, screenX - spriteWidth / 2, spriteY,
+              spriteWidth, spriteHeight, obj.id, distance);
           break;
         case InteractionType.note:
-          _drawNoteSprite(canvas, screenX - spriteWidth / 2, spriteY, spriteWidth, spriteHeight, distance);
+          _drawNoteSprite(canvas, screenX - spriteWidth / 2, spriteY,
+              spriteWidth, spriteHeight, distance);
           break;
       }
     }
   }
 
-  void _drawDoorSprite(Canvas canvas, double x, double y, double w, double h, double dist) {
+  void _drawDoorSprite(
+      Canvas canvas, double x, double y, double w, double h, double dist) {
     final fogFactor = (1.0 - dist / RaycastEngine.maxDepth).clamp(0.1, 1.0);
     final paint = Paint()
-      ..color = Color.lerp(const Color(0xFF000000), const Color(0xFF4A1515), fogFactor)!;
+      ..color = Color.lerp(
+          const Color(0xFF000000), const Color(0xFF4A1515), fogFactor)!;
     canvas.drawRect(Rect.fromLTWH(x, y, w, h), paint);
 
     // Door frame
     final framePaint = Paint()
-      ..color = Color.lerp(const Color(0xFF000000), const Color(0xFF6B2020), fogFactor)!
+      ..color = Color.lerp(
+          const Color(0xFF000000), const Color(0xFF6B2020), fogFactor)!
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     canvas.drawRect(Rect.fromLTWH(x, y, w, h), framePaint);
   }
 
-  void _drawItemSprite(Canvas canvas, double x, double y, double w, double h, String id, double dist) {
+  void _drawItemSprite(Canvas canvas, double x, double y, double w, double h,
+      String id, double dist) {
     final fogFactor = (1.0 - dist / RaycastEngine.maxDepth).clamp(0.1, 1.0);
     Color itemColor;
     if (id.startsWith('key_')) {
@@ -364,28 +369,33 @@ class RaycastPainter extends CustomPainter {
     }
 
     final paint = Paint()
-      ..color = Color.lerp(const Color(0xFF000000), itemColor, fogFactor * 0.8)!;
+      ..color =
+          Color.lerp(const Color(0xFF000000), itemColor, fogFactor * 0.8)!;
 
     // Floating item effect
     final floatOffset = math.sin(gameState.gameTime * 3) * 3;
     canvas.drawOval(
-      Rect.fromLTWH(x + w * 0.2, y + h * 0.3 + floatOffset, w * 0.6, h * 0.4),
+      Rect.fromLTWH(
+          x + w * 0.2, y + h * 0.3 + floatOffset, w * 0.6, h * 0.4),
       paint,
     );
 
     // Glow effect
     final glowPaint = Paint()
-      ..color = Color.lerp(const Color(0x00000000), itemColor.withOpacity(0.3), fogFactor)!;
+      ..color = Color.lerp(
+          const Color(0x00000000), itemColor.withOpacity(0.3), fogFactor)!;
     canvas.drawOval(
       Rect.fromLTWH(x, y + h * 0.1 + floatOffset, w, h * 0.8),
       glowPaint,
     );
   }
 
-  void _drawNoteSprite(Canvas canvas, double x, double y, double w, double h, double dist) {
+  void _drawNoteSprite(
+      Canvas canvas, double x, double y, double w, double h, double dist) {
     final fogFactor = (1.0 - dist / RaycastEngine.maxDepth).clamp(0.1, 1.0);
     final paint = Paint()
-      ..color = Color.lerp(const Color(0xFF000000), const Color(0xFFD4C5A9), fogFactor)!;
+      ..color = Color.lerp(
+          const Color(0xFF000000), const Color(0xFFD4C5A9), fogFactor)!;
 
     // Paper-like shape
     canvas.drawRect(
@@ -395,7 +405,8 @@ class RaycastPainter extends CustomPainter {
 
     // Text lines
     final linePaint = Paint()
-      ..color = Color.lerp(const Color(0xFF000000), const Color(0xFF333333), fogFactor)!;
+      ..color = Color.lerp(
+          const Color(0xFF000000), const Color(0xFF333333), fogFactor)!;
     for (var i = 0; i < 3; i++) {
       canvas.drawLine(
         Offset(x + w * 0.25, y + h * 0.35 + i * h * 0.1),
@@ -406,60 +417,56 @@ class RaycastPainter extends CustomPainter {
   }
 
   /// Draw vignette (darkened edges for found-footage feel)
-  /// Reduced intensity so walls are actually visible
+  /// VERY subtle - doesn't obscure the 3D view
   void _drawVignette(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
 
     final paint = Paint()
       ..shader = RadialGradient(
         center: Alignment.center,
-        radius: 0.8, // Wider radius - less dark area
+        radius: 1.0, // Wide radius
         colors: [
           Colors.transparent,
-          Colors.black.withOpacity(0.1),
+          Colors.black.withOpacity(0.05),
+          Colors.black.withOpacity(0.15),
           Colors.black.withOpacity(0.3),
-          Colors.black.withOpacity(0.5),
         ],
-        stops: const [0.0, 0.6, 0.85, 1.0],
+        stops: const [0.0, 0.65, 0.85, 1.0],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
   }
 
-  /// Draw noise/grain overlay for found-footage effect
-  /// Reduced so it doesn't obscure the 3D view
-  void _drawNoiseOverlay(Canvas canvas, Size size) {
-    if (size.width <= 0 || size.height <= 0) return;
+  /// Draw debug info - ALWAYS VISIBLE so we can verify rendering works
+  void _drawDebugInfo(Canvas canvas, Size size) {
+    final player = gameState.player;
+    final debugText =
+        'FPS: ${fps.toStringAsFixed(0)} | '
+        'Pos: (${player.x.toStringAsFixed(1)}, ${player.y.toStringAsFixed(1)}) | '
+        'Angle: ${(player.angle * 180 / math.pi).toStringAsFixed(0)}\u00B0 | '
+        'Flash: ${gameState.flashlight.isOn ? "ON" : "OFF"} | '
+        'Phase: ${gameState.phase.name} | '
+        'Frame: $frameCount';
 
-    final rng = math.Random(42);
-    final noisePaint = Paint();
-
-    // Very sparse noise particles
-    for (var i = 0; i < 100; i++) {
-      final x = rng.nextDouble() * size.width;
-      final y = rng.nextDouble() * size.height;
-      final alpha = rng.nextDouble() * 0.03;
-
-      noisePaint.color = Colors.white.withOpacity(alpha);
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(x, y), width: 2, height: 2),
-        noisePaint,
-      );
-    }
-
-    // Very subtle scanline effect
-    final scanPaint = Paint()..color = Colors.black.withOpacity(0.02);
-    for (var y = 0.0; y < size.height; y += 4) {
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        scanPaint,
-      );
-    }
+    final tp = TextPainter(
+      text: TextSpan(
+        text: debugText,
+        style: TextStyle(
+          color: Colors.green.withOpacity(0.8),
+          fontSize: 9,
+          fontFamily: 'Courier',
+          backgroundColor: Colors.black.withOpacity(0.5),
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    tp.layout(maxWidth: size.width - 10);
+    tp.paint(canvas, const Offset(5, 25));
   }
 
   @override
   bool shouldRepaint(covariant RaycastPainter oldDelegate) {
-    return true; // Always repaint for smooth animation
+    // Always repaint - the Ticker drives continuous animation
+    return true;
   }
 }

@@ -36,9 +36,14 @@ class RaycastEngine {
       // Fix fisheye effect
       final correctedDistance = result.distance * cos(rayAngle - playerAngle);
 
+      // Safety: ensure corrected distance is positive and not NaN
+      final safeDistance = correctedDistance.isNaN || correctedDistance <= 0
+          ? 0.01
+          : correctedDistance;
+
       strips.add(WallStrip(
         rayIndex: i,
-        distance: correctedDistance,
+        distance: safeDistance,
         rawDistance: result.distance,
         wallType: result.wallType,
         hitX: result.hitX,
@@ -61,13 +66,17 @@ class RaycastEngine {
     int mapWidth,
     int mapHeight,
   ) {
+    // Safety: clamp player position to map bounds
+    playerX = playerX.clamp(0.5, mapWidth - 0.5);
+    playerY = playerY.clamp(0.5, mapHeight - 0.5);
+
     final rayDirX = cos(rayAngle);
     final rayDirY = sin(rayAngle);
 
     int mapX = playerX.floor();
     int mapY = playerY.floor();
 
-    // Delta distances
+    // Delta distances - use large value instead of infinity for zero ray component
     final deltaDistX = (rayDirX == 0) ? 1e30 : (1 / rayDirX).abs();
     final deltaDistY = (rayDirY == 0) ? 1e30 : (1 / rayDirY).abs();
 
@@ -93,12 +102,16 @@ class RaycastEngine {
       sideDistY = (mapY + 1.0 - playerY) * deltaDistY;
     }
 
-    // DDA
+    // DDA loop with safety limit
     int hit = 0;
     int side = 0; // 0 = x-side hit, 1 = y-side hit
     int wallType = 0;
+    int iterations = 0;
+    const int maxIterations = 100; // Safety: prevent infinite loop
 
-    while (hit == 0) {
+    while (hit == 0 && iterations < maxIterations) {
+      iterations++;
+
       // Jump to next map square
       if (sideDistX < sideDistY) {
         sideDistX += deltaDistX;
@@ -127,7 +140,19 @@ class RaycastEngine {
       }
     }
 
-    // Calculate distance
+    // If DDA didn't find anything, return a far wall
+    if (hit == 0) {
+      return _RayResult(
+        distance: maxDepth,
+        wallType: 0,
+        hitX: mapX.toDouble(),
+        hitY: mapY.toDouble(),
+        side: side,
+        textureX: 0,
+      );
+    }
+
+    // Calculate perpendicular wall distance
     double perpWallDist;
     double textureX = 0;
 
@@ -139,8 +164,10 @@ class RaycastEngine {
       textureX = playerX + perpWallDist * rayDirX;
     }
 
-    // Safety: ensure distance is positive
-    if (perpWallDist <= 0) perpWallDist = 0.01;
+    // Safety: ensure distance is positive and not NaN/Infinity
+    if (perpWallDist <= 0 || perpWallDist.isNaN || perpWallDist.isInfinite) {
+      perpWallDist = 0.01;
+    }
 
     textureX -= textureX.floor(); // Get fractional part for texture mapping
 
@@ -161,6 +188,7 @@ class RaycastEngine {
 
   /// Calculate flashlight intensity for a given wall strip
   /// Returns 0.0 to 1.0 based on angle from center and distance
+  /// CRITICAL: Brighter ambient light so walls are ALWAYS visible
   static double calculateFlashlightIntensity(
     double rayAngle,
     double playerAngle,
@@ -168,67 +196,70 @@ class RaycastEngine {
     bool flashlightOn,
     double coneAngle,
   ) {
-    if (!flashlightOn) return 0.15; // Ambient light - much brighter so walls are visible
+    if (!flashlightOn) {
+      // Ambient light when flashlight is OFF - bright enough to see walls
+      return 0.30;
+    }
 
     final angleDiff = _normalizeAngle(rayAngle - playerAngle);
     final absAngle = angleDiff.abs();
 
-    // Wider ambient light for better visibility
-    if (absAngle > coneAngle) return 0.12; // Outside cone but still some ambient
+    // Outside cone - still visible with ambient light
+    if (absAngle > coneAngle) return 0.22;
 
     // Within cone - intensity falls off from center
-    final coneFactor = 1.0 - (absAngle / coneAngle) * 0.5; // Less aggressive falloff
-    final distanceFactor = 1.0 / (1.0 + distance * distance * 0.03); // Gentler distance falloff
+    final coneFactor = 1.0 - (absAngle / coneAngle) * 0.4;
+    final distanceFactor = 1.0 / (1.0 + distance * distance * 0.02);
 
-    return (0.25 + 0.75 * coneFactor * distanceFactor).clamp(0.12, 1.0);
+    return (0.30 + 0.70 * coneFactor * distanceFactor).clamp(0.22, 1.0);
   }
 
   /// Calculate color for a wall based on wall type, side, and lighting
-  /// BRIGHTER colors so walls are actually visible on phone screens
+  /// SIGNIFICANTLY BRIGHTER so walls are clearly visible on phone screens
   static Color getWallColor(int wallType, int side, double intensity) {
     Color baseColor;
 
     switch (wallType) {
-      case 1: // Dark concrete wall - BRIGHTER
-        baseColor = const Color(0xFF6A6A6A);
+      case 1: // Concrete wall - MUCH brighter
+        baseColor = const Color(0xFF9A9A9A);
         break;
-      case 2: // Bloody wall
-        baseColor = const Color(0xFF8B2020);
+      case 2: // Bloody wall - brighter red
+        baseColor = const Color(0xFFB03030);
         break;
       case 3: // Rusty metal wall
-        baseColor = const Color(0xFF7A5A3A);
+        baseColor = const Color(0xFF9A7A5A);
         break;
       case 4: // Door frame (red tint)
-        baseColor = const Color(0xFF8B3535);
+        baseColor = const Color(0xFFAB4545);
         break;
       case 5: // Cracked wall
-        baseColor = const Color(0xFF555555);
+        baseColor = const Color(0xFF7A7A7A);
         break;
       case 6: // Exit door (special green glow)
-        baseColor = const Color(0xFF2A8B2A);
+        baseColor = const Color(0xFF3ABB3A);
         break;
       default:
-        baseColor = const Color(0xFF4A4A4A);
+        baseColor = const Color(0xFF6A6A6A);
     }
 
     // Side shading (y-side walls are slightly darker)
     if (side == 1) {
-      intensity *= 0.75;
+      intensity *= 0.80;
     }
 
     return Color.lerp(const Color(0xFF000000), baseColor, intensity)!;
   }
 
-  /// Calculate floor color for a given position
+  /// Calculate floor color for a given position - BRIGHTER
   static Color getFloorColor(double distance, double intensity) {
-    const baseColor = Color(0xFF1A1A1A); // Brighter floor
-    return Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.7)!;
+    const baseColor = Color(0xFF2A2A30);
+    return Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.8)!;
   }
 
-  /// Calculate ceiling color for a given position
+  /// Calculate ceiling color for a given position - BRIGHTER
   static Color getCeilingColor(double distance, double intensity) {
-    const baseColor = Color(0xFF0F0F0F); // Slightly brighter ceiling
-    return Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.5)!;
+    const baseColor = Color(0xFF1A1A22);
+    return Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.6)!;
   }
 
   static double _normalizeAngle(double angle) {

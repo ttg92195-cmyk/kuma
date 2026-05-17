@@ -51,7 +51,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Future<void> _initAudioSafely() async {
     try {
       await _audioManager.init();
-      // Don't auto-start ambient - it will be called when game starts
     } catch (e) {
       debugPrint('AudioManager: Init failed safely - $e');
     }
@@ -67,19 +66,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // DISABLED auto-pause from lifecycle events completely.
-    // This was causing the game to immediately pause after START GAME
-    // because the orientation change triggers AppLifecycleState.paused.
-    // The user can manually pause by tapping the pause button.
-    // 
-    // If you want to re-enable auto-pause, use a delay:
-    // if (state == AppLifecycleState.paused && _hasStartedPlaying) {
-    //   Future.delayed(const Duration(seconds: 1), () {
-    //     if (mounted && context.read<GameState>().phase == GamePhase.playing) {
-    //       context.read<GameState>().pauseGame();
-    //     }
-    //   });
-    // }
+    // DISABLED auto-pause from lifecycle events.
+    // The orientation change triggers AppLifecycleState.paused which was
+    // causing the game to immediately pause after START GAME.
+    // User can manually pause by tapping the pause button.
   }
 
   void _startGameLoop() {
@@ -91,6 +81,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         final gameState = context.read<GameState>();
         if (gameState.phase == GamePhase.playing) {
           _hasStartedPlaying = true;
+
+          // Apply movement from joystick
+          if (_moveX.abs() > 0.1 || _moveY.abs() > 0.1) {
+            gameState.player.applyJoystickInput(
+              _moveX,
+              _moveY,
+              0.033,
+              gameState.canWalk,
+            );
+          } else {
+            gameState.player.stopMoving();
+          }
+
+          // Update game state
           gameState.update(0.033);
 
           // Audio updates (safe - won't crash without audio files)
@@ -117,7 +121,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       child: Scaffold(
         body: Consumer<GameState>(
           builder: (context, gameState, _) {
-            // Track that we've started playing (for potential future use)
             if (gameState.phase == GamePhase.playing) {
               _hasStartedPlaying = true;
             }
@@ -132,17 +135,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             return Stack(
               children: [
                 // 1. 3D Raycasting Renderer (bottom layer)
+                // Uses its own Ticker for reliable continuous rendering
                 Positioned.fill(
                   child: RaycastRenderer(gameState: gameState),
                 ),
 
                 // 2. Camera Overlay (found-footage UI)
                 Positioned.fill(
-                  child: CameraOverlay(
-                    isRecording: true,
-                    batteryLevel: gameState.flashlight.batteryLevel,
-                    timestamp: gameState.formattedTime,
-                    showCrosshair: true,
+                  child: IgnorePointer(
+                    child: CameraOverlay(
+                      isRecording: gameState.phase == GamePhase.playing,
+                      batteryLevel: gameState.flashlight.batteryLevel,
+                      timestamp: gameState.formattedTime,
+                      showCrosshair: true,
+                    ),
                   ),
                 ),
 
@@ -164,7 +170,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     },
                     onPanUpdate: (details) {
                       if (_touchCurrent != null) {
-                        final dx = details.globalPosition.dx - _touchCurrent!.dx;
+                        final dx =
+                            details.globalPosition.dx - _touchCurrent!.dx;
                         gameState.player.applyLookInput(dx);
                         _touchCurrent = details.globalPosition;
                       }
@@ -256,14 +263,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ),
                 ),
 
-                // 10. Movement processor (applies joystick input continuously)
-                _MovementProcessor(
-                  gameState: gameState,
-                  moveX: _moveX,
-                  moveY: _moveY,
-                ),
-
-                // 11. Pause overlay
+                // 10. Pause overlay
                 if (gameState.phase == GamePhase.paused)
                   _PauseOverlay(gameState: gameState),
               ],
@@ -315,7 +315,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 Navigator.of(context).pushReplacementNamed('/');
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
                 decoration: BoxDecoration(
                   border: Border.all(color: const Color(0xFFFFD700), width: 2),
                 ),
@@ -362,9 +363,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     gameState.startGame();
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
                     decoration: BoxDecoration(
-                      border: Border.all(color: const Color(0xFF8B0000), width: 2),
+                      border:
+                          Border.all(color: const Color(0xFF8B0000), width: 2),
                     ),
                     child: const Text(
                       'RETRY',
@@ -384,7 +387,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     Navigator.of(context).pushReplacementNamed('/');
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.white24, width: 1),
                     ),
@@ -544,37 +548,6 @@ class _BottomControls extends StatelessWidget {
   }
 }
 
-/// Movement processor - applies joystick input each frame
-class _MovementProcessor extends StatelessWidget {
-  final GameState gameState;
-  final double moveX;
-  final double moveY;
-
-  const _MovementProcessor({
-    required this.gameState,
-    required this.moveX,
-    required this.moveY,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // Apply movement in the next frame
-    if (moveX.abs() > 0.1 || moveY.abs() > 0.1) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        gameState.player.applyJoystickInput(
-          moveX,
-          moveY,
-          0.033,
-          gameState.canWalk,
-        );
-      });
-    } else {
-      gameState.player.stopMoving();
-    }
-    return const SizedBox.shrink();
-  }
-}
-
 /// Pause overlay
 class _PauseOverlay extends StatelessWidget {
   final GameState gameState;
@@ -603,7 +576,8 @@ class _PauseOverlay extends StatelessWidget {
             GestureDetector(
               onTap: () => gameState.resumeGame(),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
                 decoration: BoxDecoration(
                   border: Border.all(color: const Color(0xFF8B0000), width: 2),
                 ),
@@ -625,7 +599,8 @@ class _PauseOverlay extends StatelessWidget {
                 Navigator.of(context).pushReplacementNamed('/');
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.white24, width: 1),
                 ),
