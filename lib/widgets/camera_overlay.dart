@@ -374,7 +374,7 @@ class _ScanlineOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     // Base scanline opacity + glitch intensity
     final baseOpacity = 0.02 + glitchIntensity * 0.08;
-    final lineSpacing = (4 - glitchIntensity * 2).clamp(2, 4);
+    final lineSpacing = (4 - glitchIntensity * 2).clamp(2.0, 4.0).toDouble();
 
     return CustomPaint(
       painter: _ScanlinePainter(
