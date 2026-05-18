@@ -8,6 +8,7 @@ class CameraOverlay extends StatelessWidget {
   final double batteryLevel;
   final String timestamp;
   final bool showCrosshair;
+  final double glitchIntensity; // 0.0 to 1.0 - ghost proximity
 
   const CameraOverlay({
     super.key,
@@ -15,6 +16,7 @@ class CameraOverlay extends StatelessWidget {
     this.batteryLevel = 100.0,
     this.timestamp = '00:00:00',
     this.showCrosshair = true,
+    this.glitchIntensity = 0.0,
   });
 
   @override
@@ -54,6 +56,9 @@ class CameraOverlay extends StatelessWidget {
 
         // Corner frame markers
         _CornerFrame(),
+
+        // Scanline overlay (increases with ghost proximity)
+        _ScanlineOverlay(glitchIntensity: glitchIntensity),
       ],
     );
   }
@@ -357,4 +362,73 @@ class _CornerBracketPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// Scanline overlay that intensifies when ghost is near
+class _ScanlineOverlay extends StatelessWidget {
+  final double glitchIntensity;
+
+  const _ScanlineOverlay({required this.glitchIntensity});
+
+  @override
+  Widget build(BuildContext context) {
+    // Base scanline opacity + glitch intensity
+    final baseOpacity = 0.02 + glitchIntensity * 0.08;
+    final lineSpacing = (4 - glitchIntensity * 2).clamp(2, 4);
+
+    return CustomPaint(
+      painter: _ScanlinePainter(
+        baseOpacity: baseOpacity,
+        lineSpacing: lineSpacing,
+        glitchIntensity: glitchIntensity,
+      ),
+      size: Size.infinite,
+    );
+  }
+}
+
+class _ScanlinePainter extends CustomPainter {
+  final double baseOpacity;
+  final double lineSpacing;
+  final double glitchIntensity;
+
+  _ScanlinePainter({
+    required this.baseOpacity,
+    required this.lineSpacing,
+    required this.glitchIntensity,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Horizontal scanlines
+    final scanPaint = Paint()..color = Colors.black.withOpacity(baseOpacity);
+    for (var y = 0.0; y < size.height; y += lineSpacing) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), scanPaint);
+    }
+
+    // Extra glitch lines when ghost is near
+    if (glitchIntensity > 0.2) {
+      final rng = math.Random(DateTime.now().millisecond);
+      final numGlitchLines = (glitchIntensity * 8).floor();
+
+      for (var i = 0; i < numGlitchLines; i++) {
+        final y = rng.nextDouble() * size.height;
+        final thickness = 1.0 + rng.nextDouble() * 3.0 * glitchIntensity;
+
+        final glitchPaint = Paint()
+          ..color = rng.nextDouble() > 0.5
+              ? Colors.white.withOpacity(glitchIntensity * 0.05)
+              : Colors.red.withOpacity(glitchIntensity * 0.03);
+
+        canvas.drawLine(
+          Offset(0, y),
+          Offset(size.width, y),
+          glitchPaint..strokeWidth = thickness,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScanlinePainter oldDelegate) => true;
 }

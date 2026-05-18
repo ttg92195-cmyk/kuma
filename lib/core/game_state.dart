@@ -3,12 +3,14 @@ import 'package:flutter/foundation.dart';
 import 'player.dart';
 import 'game_map.dart';
 import 'flashlight.dart';
+import 'ghost.dart';
 
 /// Central game state manager - manages all game systems
 class GameState extends ChangeNotifier {
   // Core systems
   late Player player;
   late Flashlight flashlight;
+  late Ghost ghost;
   late List<List<int>> currentMap;
   late List<InteractiveObject> interactiveObjects;
 
@@ -28,15 +30,23 @@ class GameState extends ChangeNotifier {
   int horrorEventCount;
   bool jumpscareActive;
   double jumpscareTimer;
-  double ambientIntensity; // 0.0 to 1.0
+  double ambientIntensity;
 
   // Interaction
   InteractiveObject? nearbyObject;
   bool canInteract;
 
+  // Ghost-caused death
+  bool killedByGhost;
+  double deathTimer;
+
+  // Camera glitch intensity (0.0 to 1.0)
+  double cameraGlitchIntensity;
+
   GameState({
     Player? player,
     Flashlight? flashlight,
+    Ghost? ghost,
     this.phase = GamePhase.menu,
     this.gameTime = 0.0,
     this.score = 0,
@@ -53,9 +63,13 @@ class GameState extends ChangeNotifier {
     this.ambientIntensity = 0.3,
     this.nearbyObject,
     this.canInteract = false,
+    this.killedByGhost = false,
+    this.deathTimer = 0,
+    this.cameraGlitchIntensity = 0,
   }) {
     this.player = player ?? Player();
     this.flashlight = flashlight ?? Flashlight();
+    this.ghost = ghost ?? Ghost();
     this.inventory = inventory ?? {};
     currentMap = GameMap.hospitalMap.map((row) => List<int>.from(row)).toList();
     interactiveObjects = GameMap.objects
@@ -73,11 +87,12 @@ class GameState extends ChangeNotifier {
 
   /// Initialize a new game
   void startGame() {
-    // Reset the map to original state
+    // Reset the map
     currentMap = GameMap.hospitalMap.map((row) => List<int>.from(row)).toList();
 
     player.reset();
     flashlight.reset();
+    ghost.reset();
     gameTime = 0.0;
     score = 0;
     inventory.clear();
@@ -93,6 +108,9 @@ class GameState extends ChangeNotifier {
     ambientIntensity = 0.3;
     nearbyObject = null;
     canInteract = false;
+    killedByGhost = false;
+    deathTimer = 0;
+    cameraGlitchIntensity = 0;
     phase = GamePhase.playing;
 
     // Reset interactive objects
@@ -101,18 +119,18 @@ class GameState extends ChangeNotifier {
       obj.isOpened = false;
     }
 
-    // Validate spawn position - ensure player is on a walkable tile
+    // Validate spawn position
     _validateSpawnPosition();
+
+    // Show intro message
+    showMessage('Find the keys. Escape the asylum. Don\'t let her catch you...', duration: 5.0);
 
     notifyListeners();
   }
 
-  /// Validate that the player's spawn position is on a walkable tile
   void _validateSpawnPosition() {
     if (!GameMap.isWalkable(player.x, player.y, currentMap)) {
-      debugPrint('WARNING: Player spawn at (${player.x}, ${player.y}) is inside a wall! Finding valid position...');
-
-      // Search for a nearby walkable position
+      debugPrint('WARNING: Player spawn inside wall! Finding valid position...');
       for (int radius = 1; radius < 10; radius++) {
         for (int dx = -radius; dx <= radius; dx++) {
           for (int dy = -radius; dy <= radius; dy++) {
@@ -129,7 +147,6 @@ class GameState extends ChangeNotifier {
           }
         }
       }
-      debugPrint('CRITICAL: Could not find valid spawn position!');
     }
   }
 
@@ -142,6 +159,33 @@ class GameState extends ChangeNotifier {
 
     // Update flashlight
     flashlight.update(delta);
+
+    // Ghost flashlight flicker: if ghost is near, force flashlight to flicker
+    if (ghost.horrorIntensity > 0.3 && flashlight.isOn) {
+      flashlight.isFlickering = true;
+    } else if (ghost.horrorIntensity < 0.1) {
+      // Only stop flickering if ghost is far (natural flicker from low battery still works)
+      if (flashlight.batteryLevel >= 20.0) {
+        flashlight.isFlickering = false;
+      }
+    }
+
+    // Update ghost AI
+    ghost.update(player, currentMap, delta);
+
+    // Update camera glitch intensity based on ghost proximity
+    cameraGlitchIntensity = ghost.horrorIntensity;
+
+    // Check if ghost caught the player
+    if (ghost.hasCaughtPlayer(player)) {
+      killedByGhost = true;
+      phase = GamePhase.dead;
+      jumpscareActive = true;
+      jumpscareTimer = 2.0;
+      showMessage('She caught you...', duration: 3.0);
+      notifyListeners();
+      return;
+    }
 
     // Update player stamina
     player.updateStamina(delta);
@@ -174,13 +218,12 @@ class GameState extends ChangeNotifier {
       horrorEventTimer = 15.0 + Random().nextDouble() * 30.0;
     }
 
-    // Check win condition (player reached exit)
+    // Check win condition
     _checkWinCondition();
 
     notifyListeners();
   }
 
-  /// Check if any interactive objects are nearby
   void _checkNearbyObjects() {
     nearbyObject = null;
     canInteract = false;
@@ -189,7 +232,6 @@ class GameState extends ChangeNotifier {
       if (obj.isCollected || obj.isOpened) continue;
 
       if (obj.isInRange(player.x, player.y, range: 2.0)) {
-        // Check if player is facing the object (within 90 degree cone)
         final angleToObj = atan2(obj.y - player.y, obj.x - player.x);
         var angleDiff = angleToObj - player.angle;
         while (angleDiff > pi) angleDiff -= 2 * pi;
@@ -204,7 +246,6 @@ class GameState extends ChangeNotifier {
     }
   }
 
-  /// Interact with nearby object
   void interact() {
     if (!canInteract || nearbyObject == null) return;
 
@@ -226,27 +267,30 @@ class GameState extends ChangeNotifier {
   }
 
   void _interactDoor(InteractiveObject obj) {
-    // Check if door requires a key
     if (obj.requiredKey != null && !inventory.contains(obj.requiredKey)) {
-      showMessage('This door is locked. You need: ${obj.requiredKey?.replaceAll('_', ' ') ?? 'unknown key'}');
+      showMessage('Locked. You need: ${obj.requiredKey?.replaceAll('_', ' ') ?? 'unknown key'}');
       return;
     }
 
-    // Open the door
     obj.isOpened = true;
-
-    // Remove wall at door position in map
     final mapX = obj.x.floor();
     final mapY = obj.y.floor();
     if (mapX >= 0 && mapX < GameMap.width && mapY >= 0 && mapY < GameMap.height) {
-      currentMap[mapY][mapX] = 0; // Remove wall
+      currentMap[mapY][mapX] = 0;
     }
 
     showMessage('Opened: ${obj.label}');
     score += 50;
-
-    // Increase horror intensity after opening doors
     ambientIntensity = (ambientIntensity + 0.1).clamp(0.0, 1.0);
+
+    // Opening doors can alert the ghost
+    if (Random().nextDouble() < 0.3) {
+      // Ghost starts chasing
+      if (ghost.state != GhostState.chase) {
+        ghost.state = GhostState.chase;
+        ghost.stateTimer = 0;
+      }
+    }
   }
 
   void _interactItem(InteractiveObject obj) {
@@ -260,8 +304,13 @@ class GameState extends ChangeNotifier {
       inventory.add(obj.id);
       showMessage('Collected: ${obj.label}');
       score += 100;
-      // Key pickup triggers subtle horror
       ambientIntensity = (ambientIntensity + 0.05).clamp(0.0, 1.0);
+
+      // Key pickup triggers horror
+      if (Random().nextDouble() < 0.5) {
+        ghost.state = GhostState.stalking;
+        ghost.stateTimer = 0;
+      }
     }
   }
 
@@ -273,7 +322,6 @@ class GameState extends ChangeNotifier {
     score += 30;
   }
 
-  /// Close note overlay
   void closeNote() {
     showNoteOverlay = false;
     noteContent = null;
@@ -281,77 +329,87 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Show a temporary message
   void showMessage(String message, {double duration = 3.0}) {
     currentMessage = message;
     messageTimer = duration;
   }
 
-  /// Trigger a horror event
   void _triggerHorrorEvent() {
     horrorEventCount++;
-    final event = Random().nextInt(4);
+    final event = Random().nextInt(5);
 
     switch (event) {
       case 0:
-        // Ambient intensity spike
         ambientIntensity = (ambientIntensity + 0.15).clamp(0.0, 0.8);
         showMessage('... Something feels different ...', duration: 2.0);
         break;
       case 1:
-        // Flashlight flicker
         flashlight.isFlickering = true;
         Future.delayed(const Duration(milliseconds: 500), () {
           flashlight.isFlickering = false;
         });
         break;
       case 2:
-        // Jumpscare
         jumpscareActive = true;
         jumpscareTimer = 0.5;
         break;
       case 3:
-        // Battery drain scare
         if (flashlight.isOn) {
           flashlight.batteryLevel = (flashlight.batteryLevel - 5.0).clamp(0.0, 100.0);
           showMessage('The flashlight flickers...', duration: 2.0);
         }
         break;
+      case 4:
+        // Ghost changes behavior
+        if (ghost.state == GhostState.patrol) {
+          ghost.state = GhostState.stalking;
+          ghost.stateTimer = 0;
+          showMessage('... You hear footsteps behind you ...', duration: 2.5);
+        }
+        break;
     }
   }
 
-  /// Check if player has reached the exit
   void _checkWinCondition() {
-    // Exit is at position (22, 22) - wall type 6
-    final exitX = 22;
-    final exitY = 22;
+    // Exit door at position (30, 30) - wall type 6
+    final exitX = 30.5;
+    final exitY = 30.5;
 
     final dx = player.x - exitX;
     final dy = player.y - exitY;
     if (sqrt(dx * dx + dy * dy) < 1.5) {
-      phase = GamePhase.won;
-      showMessage('You escaped! Time: ${gameTime.toStringAsFixed(1)}s');
+      // Check if exit door is opened
+      final exitDoor = interactiveObjects.firstWhere(
+        (obj) => obj.id == 'door_exit',
+        orElse: () => InteractiveObject(x: 0, y: 0, type: InteractionType.door, id: '', label: ''),
+      );
+      if (exitDoor.isOpened) {
+        phase = GamePhase.won;
+        showMessage('You escaped! Time: ${gameTime.toStringAsFixed(1)}s');
+      } else if (inventory.contains('key_exit')) {
+        showMessage('Press E to open the EXIT!', duration: 2.0);
+      }
     }
   }
 
-  /// Toggle flashlight
   void toggleFlashlight() {
     flashlight.toggle();
+    // Flashlight toggle can alert ghost
+    if (flashlight.isOn && ghost.horrorIntensity < 0.3) {
+      player.flashlightBeamVisible = true;
+    }
     notifyListeners();
   }
 
-  /// Toggle run
   void toggleRun() {
     player.isRunning = !player.isRunning;
     notifyListeners();
   }
 
-  /// Check if a position is walkable
   bool canWalk(double x, double y) {
     return GameMap.isWalkable(x, y, currentMap);
   }
 
-  /// Pause game
   void pauseGame() {
     if (phase == GamePhase.playing) {
       phase = GamePhase.paused;
@@ -359,7 +417,6 @@ class GameState extends ChangeNotifier {
     }
   }
 
-  /// Resume game
   void resumeGame() {
     if (phase == GamePhase.paused) {
       phase = GamePhase.playing;
@@ -367,13 +424,11 @@ class GameState extends ChangeNotifier {
     }
   }
 
-  /// Return to menu
   void returnToMenu() {
     phase = GamePhase.menu;
     notifyListeners();
   }
 
-  /// Get formatted game time
   String get formattedTime {
     final minutes = (gameTime / 60).floor();
     final seconds = (gameTime % 60).floor();
@@ -381,7 +436,6 @@ class GameState extends ChangeNotifier {
   }
 }
 
-/// Game phases
 enum GamePhase {
   menu,
   playing,

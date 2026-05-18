@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/game_state.dart';
 import '../core/game_map.dart' show InteractionType;
+import '../core/ghost.dart' show GhostState;
 import '../core/audio_manager.dart';
 import '../widgets/raycast_renderer.dart';
 import '../widgets/camera_overlay.dart';
@@ -29,25 +31,26 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   // Touch look tracking
   Offset? _touchStart;
   Offset? _touchCurrent;
-  double _lookSensitivity = 0.003;
 
   // Movement state
   double _moveX = 0.0;
   double _moveY = 0.0;
 
-  // Track if we've actually started playing (to avoid auto-pause on first render)
+  // Track if we've started playing
   bool _hasStartedPlaying = false;
+
+  // Previous ghost state for vibration triggers
+  GhostState? _prevGhostState;
+  bool _prevJumpscare = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startGameLoop();
-    // Initialize audio safely - won't crash even without audio files
     _initAudioSafely();
   }
 
-  /// Initialize audio with full error handling
   Future<void> _initAudioSafely() async {
     try {
       await _audioManager.init();
@@ -66,16 +69,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // DISABLED auto-pause from lifecycle events.
-    // The orientation change triggers AppLifecycleState.paused which was
-    // causing the game to immediately pause after START GAME.
-    // User can manually pause by tapping the pause button.
+    // Disabled auto-pause
   }
 
   void _startGameLoop() {
     _gameLoop?.cancel();
     _gameLoop = Timer.periodic(
-      const Duration(milliseconds: 33), // ~30 FPS
+      const Duration(milliseconds: 33),
       (_) {
         if (!mounted) return;
         final gameState = context.read<GameState>();
@@ -85,10 +85,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           // Apply movement from joystick
           if (_moveX.abs() > 0.1 || _moveY.abs() > 0.1) {
             gameState.player.applyJoystickInput(
-              _moveX,
-              _moveY,
-              0.033,
-              gameState.canWalk,
+              _moveX, _moveY, 0.033, gameState.canWalk,
             );
           } else {
             gameState.player.stopMoving();
@@ -97,7 +94,32 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           // Update game state
           gameState.update(0.033);
 
-          // Audio updates (safe - won't crash without audio files)
+          // Vibrate when ghost starts chasing
+          if (_prevGhostState != GhostState.chase && gameState.ghost.state == GhostState.chase) {
+            HapticFeedback.heavyImpact();
+          }
+
+          // Vibrate on jumpscare
+          if (!_prevJumpscare && gameState.jumpscareActive) {
+            HapticFeedback.mediumImpact();
+          }
+
+          // Strong vibration when caught by ghost
+          if (gameState.killedByGhost && gameState.phase == GamePhase.dead) {
+            HapticFeedback.heavyImpact();
+            // Continuous vibration for jumpscare
+            Future.delayed(const Duration(milliseconds: 200), () {
+              HapticFeedback.heavyImpact();
+            });
+            Future.delayed(const Duration(milliseconds: 400), () {
+              HapticFeedback.heavyImpact();
+            });
+          }
+
+          _prevGhostState = gameState.ghost.state;
+          _prevJumpscare = gameState.jumpscareActive;
+
+          // Audio updates
           try {
             if (gameState.player.isMoving) {
               _audioManager.playFootstep();
@@ -134,13 +156,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
             return Stack(
               children: [
-                // 1. 3D Raycasting Renderer (bottom layer)
-                // Uses its own Ticker for reliable continuous rendering
+                // 1. 3D Raycasting Renderer
                 Positioned.fill(
                   child: RaycastRenderer(gameState: gameState),
                 ),
 
-                // 2. Camera Overlay (found-footage UI)
+                // 2. Camera Overlay
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CameraOverlay(
@@ -148,6 +169,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       batteryLevel: gameState.flashlight.batteryLevel,
                       timestamp: gameState.formattedTime,
                       showCrosshair: true,
+                      glitchIntensity: gameState.cameraGlitchIntensity,
                     ),
                   ),
                 ),
@@ -161,7 +183,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   inventory: gameState.inventory,
                 ),
 
-                // 4. Touch look area (right side of screen)
+                // 4. Touch look area
                 Positioned.fill(
                   child: GestureDetector(
                     onPanStart: (details) {
@@ -170,8 +192,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     },
                     onPanUpdate: (details) {
                       if (_touchCurrent != null) {
-                        final dx =
-                            details.globalPosition.dx - _touchCurrent!.dx;
+                        final dx = details.globalPosition.dx - _touchCurrent!.dx;
                         gameState.player.applyLookInput(dx);
                         _touchCurrent = details.globalPosition;
                       }
@@ -194,9 +215,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 // 6. Message overlay
                 if (gameState.currentMessage != null)
                   Positioned.fill(
-                    child: MessageOverlay(
-                      message: gameState.currentMessage,
-                    ),
+                    child: MessageOverlay(message: gameState.currentMessage),
                   ),
 
                 // 7. Note overlay
@@ -211,9 +230,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
                 // 8. Jumpscare overlay
                 if (gameState.jumpscareActive)
-                  Positioned.fill(
-                    child: _JumpscareOverlay(),
-                  ),
+                  Positioned.fill(child: _JumpscareOverlay()),
 
                 // 9. Bottom controls
                 Positioned(
@@ -228,11 +245,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     },
                     onFlashlightToggle: () {
                       gameState.toggleFlashlight();
-                      try {
-                        _audioManager.playFlashlightToggle();
-                      } catch (e) {
-                        debugPrint('Flashlight audio error (safe): $e');
-                      }
+                      try { _audioManager.playFlashlightToggle(); } catch (e) {}
                     },
                     onInteract: () {
                       gameState.interact();
@@ -240,22 +253,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       if (obj != null) {
                         try {
                           switch (obj.type) {
-                            case InteractionType.door:
-                              _audioManager.playDoorOpen();
-                              break;
+                            case InteractionType.door: _audioManager.playDoorOpen();
                             case InteractionType.item:
-                              if (obj.id.startsWith('key_')) {
-                                _audioManager.playKeyPickup();
-                              } else {
-                                _audioManager.playItemPickup();
-                              }
-                              break;
-                            case InteractionType.note:
-                              break;
+                              if (obj.id.startsWith('key_')) { _audioManager.playKeyPickup(); }
+                              else { _audioManager.playItemPickup(); }
+                            case InteractionType.note: break;
                           }
-                        } catch (e) {
-                          debugPrint('Interact audio error (safe): $e');
-                        }
+                        } catch (e) {}
                       }
                     },
                     onRunToggle: () => gameState.toggleRun(),
@@ -292,22 +296,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(height: 30),
-            Text(
-              'Time: ${gameState.formattedTime}',
-              style: const TextStyle(
-                color: Colors.white54,
-                fontSize: 18,
-                fontFamily: 'Courier',
-              ),
-            ),
-            Text(
-              'Score: ${gameState.score}',
-              style: const TextStyle(
-                color: Color(0xFFFFD700),
-                fontSize: 18,
-                fontFamily: 'Courier',
-              ),
-            ),
+            Text('Time: ${gameState.formattedTime}',
+              style: const TextStyle(color: Colors.white54, fontSize: 18, fontFamily: 'Courier')),
+            Text('Score: ${gameState.score}',
+              style: const TextStyle(color: Color(0xFFFFD700), fontSize: 18, fontFamily: 'Courier')),
             const SizedBox(height: 40),
             GestureDetector(
               onTap: () {
@@ -315,20 +307,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 Navigator.of(context).pushReplacementNamed('/');
               },
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFFFFD700), width: 2),
-                ),
-                child: const Text(
-                  'MAIN MENU',
-                  style: TextStyle(
-                    color: Color(0xFFFFD700),
-                    fontSize: 16,
-                    fontFamily: 'Courier',
-                    letterSpacing: 2,
-                  ),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                decoration: BoxDecoration(border: Border.all(color: const Color(0xFFFFD700), width: 2)),
+                child: const Text('MAIN MENU',
+                  style: TextStyle(color: Color(0xFFFFD700), fontSize: 16, fontFamily: 'Courier', letterSpacing: 2)),
               ),
             ),
           ],
@@ -344,40 +326,23 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
-              'YOU DIED',
-              style: TextStyle(
-                color: Color(0xFFFF0000),
-                fontSize: 42,
-                fontFamily: 'Courier',
-                fontWeight: FontWeight.bold,
-                letterSpacing: 6,
-              ),
-            ),
+            const Text('YOU DIED',
+              style: TextStyle(color: Color(0xFFFF0000), fontSize: 42, fontFamily: 'Courier',
+                fontWeight: FontWeight.bold, letterSpacing: 6)),
+            const SizedBox(height: 15),
+            const Text('She caught you...',
+              style: TextStyle(color: Color(0xFF880000), fontSize: 16, fontFamily: 'Courier', letterSpacing: 2)),
             const SizedBox(height: 40),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 GestureDetector(
-                  onTap: () {
-                    gameState.startGame();
-                  },
+                  onTap: () => gameState.startGame(),
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                    decoration: BoxDecoration(
-                      border:
-                          Border.all(color: const Color(0xFF8B0000), width: 2),
-                    ),
-                    child: const Text(
-                      'RETRY',
-                      style: TextStyle(
-                        color: Color(0xFFFF0000),
-                        fontSize: 14,
-                        fontFamily: 'Courier',
-                        letterSpacing: 2,
-                      ),
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                    decoration: BoxDecoration(border: Border.all(color: const Color(0xFF8B0000), width: 2)),
+                    child: const Text('RETRY',
+                      style: TextStyle(color: Color(0xFFFF0000), fontSize: 14, fontFamily: 'Courier', letterSpacing: 2)),
                   ),
                 ),
                 const SizedBox(width: 20),
@@ -387,20 +352,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     Navigator.of(context).pushReplacementNamed('/');
                   },
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.white24, width: 1),
-                    ),
-                    child: const Text(
-                      'QUIT',
-                      style: TextStyle(
-                        color: Colors.white38,
-                        fontSize: 14,
-                        fontFamily: 'Courier',
-                        letterSpacing: 2,
-                      ),
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                    decoration: BoxDecoration(border: Border.all(color: Colors.white24, width: 1)),
+                    child: const Text('QUIT',
+                      style: TextStyle(color: Colors.white38, fontSize: 14, fontFamily: 'Courier', letterSpacing: 2)),
                   ),
                 ),
               ],
@@ -422,12 +377,9 @@ class _BottomControls extends StatelessWidget {
   final VoidCallback onPause;
 
   const _BottomControls({
-    required this.gameState,
-    required this.onMove,
-    required this.onFlashlightToggle,
-    required this.onInteract,
-    required this.onRunToggle,
-    required this.onPause,
+    required this.gameState, required this.onMove,
+    required this.onFlashlightToggle, required this.onInteract,
+    required this.onRunToggle, required this.onPause,
   });
 
   @override
@@ -436,109 +388,53 @@ class _BottomControls extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        // Left side: Joystick
-        JoystickWidget(
-          onMove: onMove,
-          size: 130,
-          accentColor: const Color(0xFF8B0000),
-        ),
-
-        // Center: Interact + Run buttons
+        JoystickWidget(onMove: onMove, size: 130, accentColor: const Color(0xFF8B0000)),
         Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Interact button (E key)
             if (gameState.canInteract)
               GestureDetector(
                 onTap: onInteract,
                 child: Container(
-                  width: 55,
-                  height: 55,
+                  width: 55, height: 55,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: const Color(0xFF8B0000).withOpacity(0.3),
-                    border: Border.all(
-                      color: const Color(0xFFFF0000),
-                      width: 2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFFFF0000).withOpacity(0.3),
-                        blurRadius: 15,
-                      ),
-                    ],
+                    border: Border.all(color: const Color(0xFFFF0000), width: 2),
+                    boxShadow: [BoxShadow(color: const Color(0xFFFF0000).withOpacity(0.3), blurRadius: 15)],
                   ),
                   child: const Center(
-                    child: Text(
-                      'E',
-                      style: TextStyle(
-                        color: Color(0xFFFF0000),
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Courier',
-                      ),
-                    ),
+                    child: Text('E', style: TextStyle(color: Color(0xFFFF0000), fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
                   ),
                 ),
               ),
             const SizedBox(height: 10),
-            // Run button
             GestureDetector(
               onLongPressStart: (_) => onRunToggle(),
               onLongPressEnd: (_) => onRunToggle(),
               child: Container(
-                width: 45,
-                height: 45,
+                width: 45, height: 45,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: gameState.player.isRunning
-                      ? Colors.orange.withOpacity(0.3)
-                      : Colors.black26,
-                  border: Border.all(
-                    color: gameState.player.isRunning
-                        ? Colors.orange
-                        : Colors.white24,
-                    width: 1,
-                  ),
+                  color: gameState.player.isRunning ? Colors.orange.withOpacity(0.3) : Colors.black26,
+                  border: Border.all(color: gameState.player.isRunning ? Colors.orange : Colors.white24, width: 1),
                 ),
-                child: Icon(
-                  Icons.directions_run,
-                  color: gameState.player.isRunning
-                      ? Colors.orange
-                      : Colors.white24,
-                  size: 20,
-                ),
+                child: Icon(Icons.directions_run, color: gameState.player.isRunning ? Colors.orange : Colors.white24, size: 20),
               ),
             ),
           ],
         ),
-
-        // Right side: Flashlight + Pause
         Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            FlashlightButton(
-              isOn: gameState.flashlight.isOn,
-              batteryLevel: gameState.flashlight.batteryLevel,
-              onToggle: onFlashlightToggle,
-            ),
+            FlashlightButton(isOn: gameState.flashlight.isOn, batteryLevel: gameState.flashlight.batteryLevel, onToggle: onFlashlightToggle),
             const SizedBox(height: 10),
-            // Pause button
             GestureDetector(
               onTap: onPause,
               child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.black26,
-                  border: Border.all(color: Colors.white12, width: 1),
-                ),
-                child: const Icon(
-                  Icons.pause,
-                  color: Colors.white24,
-                  size: 18,
-                ),
+                width: 40, height: 40,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.black26, border: Border.all(color: Colors.white12, width: 1)),
+                child: const Icon(Icons.pause, color: Colors.white24, size: 18),
               ),
             ),
           ],
@@ -548,10 +444,8 @@ class _BottomControls extends StatelessWidget {
   }
 }
 
-/// Pause overlay
 class _PauseOverlay extends StatelessWidget {
   final GameState gameState;
-
   const _PauseOverlay({required this.gameState});
 
   @override
@@ -562,57 +456,23 @@ class _PauseOverlay extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
-              'PAUSED',
-              style: TextStyle(
-                color: Color(0xFF8B0000),
-                fontSize: 32,
-                fontFamily: 'Courier',
-                fontWeight: FontWeight.bold,
-                letterSpacing: 6,
-              ),
-            ),
+            const Text('PAUSED', style: TextStyle(color: Color(0xFF8B0000), fontSize: 32, fontFamily: 'Courier', fontWeight: FontWeight.bold, letterSpacing: 6)),
             const SizedBox(height: 40),
             GestureDetector(
               onTap: () => gameState.resumeGame(),
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFF8B0000), width: 2),
-                ),
-                child: const Text(
-                  'RESUME',
-                  style: TextStyle(
-                    color: Color(0xFFFF0000),
-                    fontSize: 16,
-                    fontFamily: 'Courier',
-                    letterSpacing: 2,
-                  ),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                decoration: BoxDecoration(border: Border.all(color: const Color(0xFF8B0000), width: 2)),
+                child: const Text('RESUME', style: TextStyle(color: Color(0xFFFF0000), fontSize: 16, fontFamily: 'Courier', letterSpacing: 2)),
               ),
             ),
             const SizedBox(height: 15),
             GestureDetector(
-              onTap: () {
-                gameState.returnToMenu();
-                Navigator.of(context).pushReplacementNamed('/');
-              },
+              onTap: () { gameState.returnToMenu(); Navigator.of(context).pushReplacementNamed('/'); },
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white24, width: 1),
-                ),
-                child: const Text(
-                  'QUIT TO MENU',
-                  style: TextStyle(
-                    color: Colors.white38,
-                    fontSize: 14,
-                    fontFamily: 'Courier',
-                    letterSpacing: 2,
-                  ),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                decoration: BoxDecoration(border: Border.all(color: Colors.white24, width: 1)),
+                child: const Text('QUIT TO MENU', style: TextStyle(color: Colors.white38, fontSize: 14, fontFamily: 'Courier', letterSpacing: 2)),
               ),
             ),
           ],
@@ -622,47 +482,30 @@ class _PauseOverlay extends StatelessWidget {
   }
 }
 
-/// Jumpscare overlay effect
 class _JumpscareOverlay extends StatefulWidget {
   @override
   State<_JumpscareOverlay> createState() => _JumpscareOverlayState();
 }
 
-class _JumpscareOverlayState extends State<_JumpscareOverlay>
-    with SingleTickerProviderStateMixin {
+class _JumpscareOverlayState extends State<_JumpscareOverlay> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    )..forward();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 500))..forward();
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  void dispose() { _controller.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
-        final flashIntensity = _controller.value < 0.3
-            ? _controller.value / 0.3
-            : 1.0 - ((_controller.value - 0.3) / 0.7);
-
-        return Container(
-          color: Color.lerp(
-            Colors.transparent,
-            const Color(0x80FF0000),
-            flashIntensity,
-          ),
-        );
+        final flashIntensity = _controller.value < 0.3 ? _controller.value / 0.3 : 1.0 - ((_controller.value - 0.3) / 0.7);
+        return Container(color: Color.lerp(Colors.transparent, const Color(0x80FF0000), flashIntensity));
       },
     );
   }

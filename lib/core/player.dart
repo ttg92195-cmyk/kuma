@@ -2,16 +2,17 @@ import 'dart:math';
 import 'game_map.dart';
 
 /// Player state and movement controller
+/// CRITICAL: Uses double values for smooth continuous movement
 class Player {
-  // Position
+  // Position (double for smooth movement - NOT grid-locked)
   double x;
   double y;
   double angle; // Facing direction in radians
 
-  // Movement
-  double moveSpeed;
+  // Movement - INCREASED for smooth feel
+  double moveSpeed;      // Base movement speed (units per second)
   double rotationSpeed;
-  double currentMoveSpeed; // For walking/running
+  double currentMoveSpeed;
   double currentRotSpeed;
 
   // State
@@ -25,12 +26,15 @@ class Player {
   double stamina;
   double maxStamina;
 
+  // Flashlight beam visibility (for ghost detection)
+  bool flashlightBeamVisible;
+
   Player({
     double? x,
     double? y,
     double? angle,
-    this.moveSpeed = 0.04,
-    this.rotationSpeed = 0.04,
+    this.moveSpeed = 3.0, // MUCH faster: 3.0 units/sec (was 0.04 per frame)
+    this.rotationSpeed = 3.0,
     this.isRunning = false,
     this.isMoving = false,
     this.bobPhase = 0.0,
@@ -38,128 +42,54 @@ class Player {
     this.health = 100.0,
     this.stamina = 100.0,
     this.maxStamina = 100.0,
+    this.flashlightBeamVisible = true,
   })  : x = x ?? GameMap.spawnX,
         y = y ?? GameMap.spawnY,
         angle = angle ?? GameMap.spawnAngle,
-        currentMoveSpeed = moveSpeed,
-        currentRotSpeed = rotationSpeed;
+        currentMoveSpeed = 3.0,
+        currentRotSpeed = 3.0;
 
-  /// Move player forward/backward
-  void moveForward(double delta, bool Function(double, double) canWalk) {
-    final speed = isRunning ? moveSpeed * 2.0 : moveSpeed;
-    final newX = x + cos(angle) * speed * delta;
-    final newY = y + sin(angle) * speed * delta;
-
-    // Check collision with sliding along walls
-    if (canWalk(newX, y)) x = newX;
-    if (canWalk(x, newY)) y = newY;
-
-    isMoving = true;
-    _updateBob(delta);
-  }
-
-  /// Move player backward
-  void moveBackward(double delta, bool Function(double, double) canWalk) {
-    final speed = moveSpeed * 0.7;
-    final newX = x - cos(angle) * speed * delta;
-    final newY = y - sin(angle) * speed * delta;
-
-    if (canWalk(newX, y)) x = newX;
-    if (canWalk(x, newY)) y = newY;
-
-    isMoving = true;
-    _updateBob(delta);
-  }
-
-  /// Strafe left
-  void strafeLeft(double delta, bool Function(double, double) canWalk) {
-    final speed = moveSpeed * 0.7;
-    final newX = x + cos(angle - pi / 2) * speed * delta;
-    final newY = y + sin(angle - pi / 2) * speed * delta;
-
-    if (canWalk(newX, y)) x = newX;
-    if (canWalk(x, newY)) y = newY;
-
-    isMoving = true;
-    _updateBob(delta);
-  }
-
-  /// Strafe right
-  void strafeRight(double delta, bool Function(double, double) canWalk) {
-    final speed = moveSpeed * 0.7;
-    final newX = x + cos(angle + pi / 2) * speed * delta;
-    final newY = y + sin(angle + pi / 2) * speed * delta;
-
-    if (canWalk(newX, y)) x = newX;
-    if (canWalk(x, newY)) y = newY;
-
-    isMoving = true;
-    _updateBob(delta);
-  }
-
-  /// Rotate player left
-  void rotateLeft(double delta) {
-    angle -= rotationSpeed * delta;
-    // Normalize angle
-    while (angle < 0) angle += 2 * pi;
-  }
-
-  /// Rotate player right
-  void rotateRight(double delta) {
-    angle += rotationSpeed * delta;
-    while (angle > 2 * pi) angle -= 2 * pi;
-  }
-
-  /// Apply joystick input for movement and rotation
+  /// Apply joystick input for SMOOTH continuous movement
+  /// moveX: -1 to 1 (left/right strafe)
+  /// moveY: -1 to 1 (forward/backward)
   void applyJoystickInput(
     double moveX,
     double moveY,
     double delta,
     bool Function(double, double) canWalk,
   ) {
-    // moveX: -1 to 1 (left/right strafe)
-    // moveY: -1 to 1 (forward/backward)
+    bool moved = false;
+    final runMultiplier = isRunning ? 1.8 : 1.0;
+    final speed = moveSpeed * runMultiplier * delta;
 
+    // Forward/Backward movement
     if (moveY.abs() > 0.1) {
-      if (moveY > 0) {
-        final speed = moveSpeed * moveY * delta * 60;
-        final newX = x + cos(angle) * speed;
-        final newY = y + sin(angle) * speed;
-        if (canWalk(newX, y)) x = newX;
-        if (canWalk(x, newY)) y = newY;
-      } else {
-        final speed = moveSpeed * moveY.abs() * delta * 60 * 0.7;
-        final newX = x - cos(angle) * speed;
-        final newY = y - sin(angle) * speed;
-        if (canWalk(newX, y)) x = newX;
-        if (canWalk(x, newY)) y = newY;
-      }
-      isMoving = true;
+      final moveAmount = speed * moveY;
+      final newX = x + cos(angle) * moveAmount;
+      final newY = y + sin(angle) * moveAmount;
+
+      // Sliding collision: try each axis independently
+      if (canWalk(newX, y)) { x = newX; moved = true; }
+      if (canWalk(x, newY)) { y = newY; moved = true; }
     }
 
+    // Strafe movement (left/right)
     if (moveX.abs() > 0.1) {
-      if (moveX > 0) {
-        final speed = moveSpeed * moveX * delta * 60 * 0.7;
-        final newX = x + cos(angle + pi / 2) * speed;
-        final newY = y + sin(angle + pi / 2) * speed;
-        if (canWalk(newX, y)) x = newX;
-        if (canWalk(x, newY)) y = newY;
-      } else {
-        final speed = moveSpeed * moveX.abs() * delta * 60 * 0.7;
-        final newX = x + cos(angle - pi / 2) * speed;
-        final newY = y + sin(angle - pi / 2) * speed;
-        if (canWalk(newX, y)) x = newX;
-        if (canWalk(x, newY)) y = newY;
-      }
-      isMoving = true;
+      final strafeAmount = speed * moveX * 0.7; // Strafe is slower
+      final newX = x + cos(angle + pi / 2) * strafeAmount;
+      final newY = y + sin(angle + pi / 2) * strafeAmount;
+
+      if (canWalk(newX, y)) { x = newX; moved = true; }
+      if (canWalk(x, newY)) { y = newY; moved = true; }
     }
 
+    isMoving = moved;
     if (isMoving) _updateBob(delta);
   }
 
   /// Apply touch look (rotation from right side of screen)
   void applyLookInput(double dx) {
-    angle += dx * 0.003;
+    angle += dx * 0.004; // Smooth rotation sensitivity
     while (angle > 2 * pi) angle -= 2 * pi;
     while (angle < 0) angle += 2 * pi;
   }
@@ -168,7 +98,7 @@ class Player {
   void _updateBob(double delta) {
     final bobSpeed = isRunning ? 12.0 : 8.0;
     bobPhase += bobSpeed * delta;
-    bobAmount = sin(bobPhase) * (isRunning ? 8.0 : 4.0);
+    bobAmount = sin(bobPhase) * (isRunning ? 4.0 : 2.0);
   }
 
   /// Update stamina based on movement
@@ -189,7 +119,7 @@ class Player {
     bobAmount *= 0.9; // Smoothly stop bobbing
   }
 
-  /// Reset player to spawn position (from GameMap constants)
+  /// Reset player to spawn position
   void reset() {
     x = GameMap.spawnX;
     y = GameMap.spawnY;
@@ -200,5 +130,6 @@ class Player {
     isMoving = false;
     bobPhase = 0.0;
     bobAmount = 0.0;
+    flashlightBeamVisible = true;
   }
 }
