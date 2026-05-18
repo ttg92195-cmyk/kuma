@@ -130,16 +130,16 @@ class RaycastPainter extends CustomPainter {
       gameState.currentMap.length,
     );
 
-    // Draw ceiling - darker for more horror atmosphere
+    // Draw ceiling base - atmospheric fog color
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height / 2),
-      Paint()..color = const Color(0xFF08080C),
+      Paint()..color = RaycastEngine.fogColor,
     );
 
-    // Draw floor - darker for more horror atmosphere
+    // Draw floor base - atmospheric fog color
     canvas.drawRect(
       Rect.fromLTWH(0, size.height / 2, size.width, size.height / 2),
-      Paint()..color = const Color(0xFF0C0C10),
+      Paint()..color = RaycastEngine.fogColor,
     );
 
     // Render wall strips with procedural textures
@@ -162,8 +162,9 @@ class RaycastPainter extends CustomPainter {
         strip.wallType, strip.side, lightIntensity,
       );
 
-      final fogFactor = (1.0 - strip.distance / RaycastEngine.maxDepth).clamp(0.0, 1.0);
-      wallColor = Color.lerp(const Color(0xFF000000), wallColor, fogFactor)!;
+      // Exponential atmospheric fog - walls fade into dark blue-gray fog
+      final fogFactor = RaycastEngine.calculateFogFactor(strip.distance);
+      wallColor = Color.lerp(RaycastEngine.fogColor, wallColor, fogFactor)!;
 
       // Draw base wall strip
       canvas.drawRect(
@@ -182,17 +183,15 @@ class RaycastPainter extends CustomPainter {
         );
       }
 
-      // Floor gradient
-      _drawFloorGradient(canvas,
+      // Floor casting with grid pattern
+      _drawFloorCasting(canvas, strip,
         strip.rayIndex * stripPixelWidth, wallBottom,
-        stripPixelWidth, size.height - wallBottom,
-        strip.distance, lightIntensity);
+        stripPixelWidth, size, lightIntensity);
 
-      // Ceiling gradient
-      _drawCeilingGradient(canvas,
+      // Ceiling casting with grid pattern
+      _drawCeilingCasting(canvas, strip,
         strip.rayIndex * stripPixelWidth, 0,
-        stripPixelWidth, wallTop,
-        strip.distance, lightIntensity);
+        stripPixelWidth, wallTop, size, lightIntensity);
     }
 
     // Draw ghost sprite
@@ -842,7 +841,7 @@ class RaycastPainter extends CustomPainter {
     if (strips[rayIndex].distance < distance - 0.5) return;
 
     final spriteY = size.height / 2 - spriteHeight / 2 + player.bobAmount + spriteHeight * 0.05;
-    final fogFactor = (1.0 - distance / RaycastEngine.maxDepth).clamp(0.1, 1.0);
+    final fogFactor = RaycastEngine.calculateFogFactor(distance).clamp(0.1, 1.0);
 
     // === ANIMATION ===
     // Swaying motion - ghost sways side to side
@@ -1087,7 +1086,7 @@ class RaycastPainter extends CustomPainter {
       if (strips[rayIndex].distance < distance) continue;
 
       final spriteY = size.height / 2 - spriteHeight / 2 + gameState.player.bobAmount;
-      final fogFactor = (1.0 - distance / RaycastEngine.maxDepth).clamp(0.1, 1.0);
+      final fogFactor = RaycastEngine.calculateFogFactor(distance).clamp(0.1, 1.0);
 
       switch (obj.type) {
         case InteractionType.door:
@@ -1301,16 +1300,128 @@ class RaycastPainter extends CustomPainter {
     }
   }
 
-  void _drawFloorGradient(Canvas canvas, double x, double y, double width, double height, double distance, double intensity) {
-    if (height <= 0) return;
-    final floorColor = RaycastEngine.getFloorColor(distance, intensity);
-    canvas.drawRect(Rect.fromLTWH(x, y, width + 1, height), Paint()..color = floorColor);
+  /// Floor Casting - renders floor with perspective grid pattern
+  /// Uses ray-floor intersection to calculate world coordinates per band
+  void _drawFloorCasting(
+    Canvas canvas, WallStrip strip,
+    double stripX, double wallBottom,
+    double stripWidth, Size size, double lightIntensity,
+  ) {
+    final player = gameState.player;
+    final screenHeight = size.height;
+    final horizonY = screenHeight / 2 + player.bobAmount;
+    
+    if (wallBottom >= screenHeight) return;
+    if (wallBottom < horizonY) wallBottom = horizonY; // Safety clamp
+    
+    final rayDirX = math.cos(strip.rayAngle);
+    final rayDirY = math.sin(strip.rayAngle);
+    final angleDiff = strip.rayAngle - player.angle;
+    final cosAngleDiff = math.cos(angleDiff);
+    if (cosAngleDiff == 0) return;
+    
+    // Band size - adaptive: larger bands for distant floor (less detail needed)
+    const bandSize = 5.0;
+    
+    double y = wallBottom;
+    while (y < screenHeight) {
+      final p = y - horizonY;
+      if (p <= 0) { y += bandSize; continue; }
+      
+      // Calculate perpendicular distance to this floor row
+      // Formula: d_perp = 0.5 * screenHeight / (y - horizonY)
+      // This comes from the projection: a point at distance d and height 0.5 below eye
+      // appears at screen position: horizonY + 0.5 * screenHeight / d
+      final perpDist = 0.5 * screenHeight / p;
+      
+      if (perpDist > RaycastEngine.maxDepth) break;
+      
+      // Convert perpendicular distance to actual ray distance
+      final rawDist = perpDist / cosAngleDiff;
+      
+      // Calculate world coordinates of this floor point
+      final floorX = player.x + rawDist * rayDirX;
+      final floorY = player.y + rawDist * rayDirY;
+      
+      // Get floor color with grid pattern, flashlight, and fog
+      final floorColor = RaycastEngine.getFloorColorAt(
+        floorX, floorY, perpDist, lightIntensity,
+      );
+      
+      // Draw this band
+      final bandHeight = (y + bandSize > screenHeight) ? screenHeight - y : bandSize;
+      canvas.drawRect(
+        Rect.fromLTWH(stripX, y, stripWidth + 1, bandHeight),
+        Paint()..color = floorColor,
+      );
+      
+      // Adaptive step: skip more pixels for distant floor (less detail visible)
+      if (perpDist > 12.0) {
+        y += bandSize * 2;
+      } else if (perpDist > 6.0) {
+        y += bandSize * 1.5;
+      } else {
+        y += bandSize;
+      }
+    }
   }
 
-  void _drawCeilingGradient(Canvas canvas, double x, double y, double width, double height, double distance, double intensity) {
-    if (height <= 0) return;
-    final ceilColor = RaycastEngine.getCeilingColor(distance, intensity);
-    canvas.drawRect(Rect.fromLTWH(x, y, width + 1, height), Paint()..color = ceilColor);
+  /// Ceiling Casting - renders ceiling with perspective grid pattern
+  /// Mirrors the floor casting algorithm for the upper half of the screen
+  void _drawCeilingCasting(
+    Canvas canvas, WallStrip strip,
+    double stripX, double startY,
+    double stripWidth, double wallTop, Size size, double lightIntensity,
+  ) {
+    final player = gameState.player;
+    final screenHeight = size.height;
+    final horizonY = screenHeight / 2 + player.bobAmount;
+    
+    if (wallTop <= 0) return;
+    if (wallTop > horizonY) wallTop = horizonY; // Safety clamp
+    
+    final rayDirX = math.cos(strip.rayAngle);
+    final rayDirY = math.sin(strip.rayAngle);
+    final angleDiff = strip.rayAngle - player.angle;
+    final cosAngleDiff = math.cos(angleDiff);
+    if (cosAngleDiff == 0) return;
+    
+    const bandSize = 5.0;
+    
+    // Walk from wall top upward (towards screen top = more distant ceiling)
+    double y = wallTop - bandSize;
+    while (y > 0) {
+      // For ceiling, we measure from horizon upward
+      final p = horizonY - y;
+      if (p <= 0) { y -= bandSize; continue; }
+      
+      final perpDist = 0.5 * screenHeight / p;
+      
+      if (perpDist > RaycastEngine.maxDepth) break;
+      
+      final rawDist = perpDist / cosAngleDiff;
+      final ceilX = player.x + rawDist * rayDirX;
+      final ceilY = player.y + rawDist * rayDirY;
+      
+      final ceilColor = RaycastEngine.getCeilingColorAt(
+        ceilX, ceilY, perpDist, lightIntensity,
+      );
+      
+      final bandHeight = (y - bandSize < 0) ? y : bandSize;
+      canvas.drawRect(
+        Rect.fromLTWH(stripX, y, stripWidth + 1, bandHeight),
+        Paint()..color = ceilColor,
+      );
+      
+      // Adaptive step for distant ceiling
+      if (perpDist > 12.0) {
+        y -= bandSize * 2;
+      } else if (perpDist > 6.0) {
+        y -= bandSize * 1.5;
+      } else {
+        y -= bandSize;
+      }
+    }
   }
 
   /// ENHANCED Flashlight Vignette - dramatic dark overlay with circular light

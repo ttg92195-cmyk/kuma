@@ -10,6 +10,14 @@ class RaycastEngine {
   static const double maxDepth = 24.0;
   static const double stripWidth = 1.0;
 
+  // === ATMOSPHERIC FOG ===
+  // Exponential fog density - higher = thicker fog
+  static const double fogDensity = 0.12;
+  // Fog color - dark blue-gray for hospital horror atmosphere
+  static const Color fogColor = Color(0xFF080810);
+  // Floor/ceiling specific fog density (slightly thicker)
+  static const double floorFogDensity = 0.15;
+
   /// Cast all rays and return wall strip data for rendering
   static List<WallStrip> castRays(
     double playerX,
@@ -260,6 +268,72 @@ class RaycastEngine {
       case 12: return WallTextureType.operatingRoom;
       default: return WallTextureType.concrete;
     }
+  }
+
+  /// Calculate exponential fog factor (0 = fully fogged, 1 = no fog)
+  static double calculateFogFactor(double distance, {double? density}) {
+    final d = density ?? fogDensity;
+    return exp(-distance * d).clamp(0.0, 1.0);
+  }
+
+  /// Apply fog to a color using exponential fog with fog color
+  static Color applyFog(Color baseColor, double distance, {double? density}) {
+    final fogFactor = calculateFogFactor(distance, density: density);
+    return Color.lerp(fogColor, baseColor, fogFactor)!;
+  }
+
+  /// Get floor color for a specific world position with grid pattern
+  /// Returns the color for a floor pixel at the given world coordinates
+  static Color getFloorColorAt(double floorX, double floorY, double distance, double intensity) {
+    final cellX = floorX.floor();
+    final cellY = floorY.floor();
+    final fracX = floorX - cellX;
+    final fracY = floorY - cellY;
+
+    // Grid line detection (within threshold of cell boundary)
+    const gridThreshold = 0.06;
+    final onGridX = fracX < gridThreshold || fracX > (1.0 - gridThreshold);
+    final onGridY = fracY < gridThreshold || fracY > (1.0 - gridThreshold);
+
+    // Determine base color
+    Color baseColor;
+    if (onGridX || onGridY) {
+      // Grid/grout line - slightly brighter
+      baseColor = const Color(0xFF2A2A32);
+    } else {
+      // Checkerboard pattern
+      final darkCell = (cellX + cellY) % 2 == 0;
+      baseColor = darkCell ? const Color(0xFF14141C) : const Color(0xFF1C1C26);
+    }
+
+    // Apply flashlight intensity
+    Color litColor = Color.lerp(const Color(0xFF000000), baseColor, intensity)!;
+
+    // Apply exponential fog (thicker for floor)
+    return Color.lerp(fogColor, litColor, calculateFogFactor(distance, density: floorFogDensity))!;
+  }
+
+  /// Get ceiling color for a specific world position with grid pattern
+  static Color getCeilingColorAt(double ceilX, double ceilY, double distance, double intensity) {
+    final cellX = ceilX.floor();
+    final cellY = ceilY.floor();
+    final fracX = ceilX - cellX;
+    final fracY = ceilY - cellY;
+
+    const gridThreshold = 0.06;
+    final onGridX = fracX < gridThreshold || fracX > (1.0 - gridThreshold);
+    final onGridY = fracY < gridThreshold || fracY > (1.0 - gridThreshold);
+
+    Color baseColor;
+    if (onGridX || onGridY) {
+      baseColor = const Color(0xFF22222C);
+    } else {
+      final darkCell = (cellX + cellY) % 2 == 0;
+      baseColor = darkCell ? const Color(0xFF0E0E16) : const Color(0xFF161620);
+    }
+
+    Color litColor = Color.lerp(const Color(0xFF000000), baseColor, intensity * 0.7)!;
+    return Color.lerp(fogColor, litColor, calculateFogFactor(distance, density: floorFogDensity))!;
   }
 
   static Color getFloorColor(double distance, double intensity) {
