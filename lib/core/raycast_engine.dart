@@ -7,7 +7,7 @@ class RaycastEngine {
   static const double fov = 60.0 * pi / 180.0;
   static const double halfFov = fov / 2.0;
   static const int numRays = 240;
-  static const double maxDepth = 24.0; // Larger map needs deeper rendering
+  static const double maxDepth = 24.0;
   static const double stripWidth = 1.0;
 
   /// Cast all rays and return wall strip data for rendering
@@ -170,7 +170,7 @@ class RaycastEngine {
     );
   }
 
-  /// Calculate flashlight intensity - BRIGHTER so walls always visible
+  /// Calculate flashlight intensity
   static double calculateFlashlightIntensity(
     double rayAngle,
     double playerAngle,
@@ -191,15 +191,15 @@ class RaycastEngine {
     return (0.28 + 0.72 * coneFactor * distanceFactor).clamp(0.20, 1.0);
   }
 
-  /// Get wall base color - BRIGHTER for phone visibility
+  /// Get wall base color - themed per room type
   static Color getWallColor(int wallType, int side, double intensity) {
     Color baseColor;
 
     switch (wallType) {
-      case 1: // Concrete wall
+      case 1: // Concrete wall (Lobby/Corridor)
         baseColor = const Color(0xFF8A8A8A);
         break;
-      case 2: // Bloody wall
+      case 2: // Bloody wall (OR)
         baseColor = const Color(0xFFB03030);
         break;
       case 3: // Rusty metal wall
@@ -217,11 +217,20 @@ class RaycastEngine {
       case 7: // Emergency red wall
         baseColor = const Color(0xFFCC2020);
         break;
-      case 8: // Dirty tile wall
+      case 8: // Dirty tile wall (Office/Pharmacy)
         baseColor = const Color(0xFF8A8A7A);
         break;
-      case 9: // Brick wall
+      case 9: // Brick wall (Basement)
         baseColor = const Color(0xFF8A6A5A);
+        break;
+      case 10: // Morgue locker wall (steel grey-blue)
+        baseColor = const Color(0xFF6A7A8A);
+        break;
+      case 11: // ICU blue tile wall
+        baseColor = const Color(0xFF7A9AAA);
+        break;
+      case 12: // Operating Room wall (pale green-white)
+        baseColor = const Color(0xFF8A9A8A);
         break;
       default:
         baseColor = const Color(0xFF6A6A6A);
@@ -246,6 +255,9 @@ class RaycastEngine {
       case 7: return WallTextureType.emergency;
       case 8: return WallTextureType.tile;
       case 9: return WallTextureType.brick;
+      case 10: return WallTextureType.morgue;
+      case 11: return WallTextureType.icuTile;
+      case 12: return WallTextureType.operatingRoom;
       default: return WallTextureType.concrete;
     }
   }
@@ -278,6 +290,9 @@ enum WallTextureType {
   emergency,
   tile,
   brick,
+  morgue,
+  icuTile,
+  operatingRoom,
 }
 
 class WallStrip {

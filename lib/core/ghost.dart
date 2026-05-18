@@ -3,12 +3,12 @@ import 'player.dart';
 import 'game_map.dart';
 
 /// Ghost AI - Female ghost that chases the player
-/// Uses simple pathfinding with wall avoidance
+/// Features: Proximity damage, noise aggro, multiple AI states
 class Ghost {
   // Position
   double x;
   double y;
-  double angle; // Current facing direction
+  double angle;
 
   // Movement
   double baseSpeed;
@@ -17,19 +17,27 @@ class Ghost {
   // AI State
   GhostState state;
   double stateTimer;
-  double chaseDistance; // How close before actively chasing
-  double killDistance; // How close before jumpscare
+  double chaseDistance;
+  double killDistance;
 
   // Behavior
   double patrolAngle;
   double patrolTimer;
-  double lostTimer; // Timer for when player is lost
+  double lostTimer;
   bool isVisible;
   double visibilityTimer;
   double flickerTimer;
 
   // Horror intensity (affects flashlight and camera)
-  double horrorIntensity; // 0.0 to 1.0 based on distance to player
+  double horrorIntensity;
+
+  // Damage system
+  double damageCooldown; // Cooldown between damage ticks
+  double damagePerSecond; // DPS when close to player
+
+  // Noise aggro
+  double noiseAlertTimer; // Timer for noise-triggered chase
+  bool isAlertedByNoise;
 
   Ghost({
     double? x,
@@ -47,6 +55,10 @@ class Ghost {
     this.visibilityTimer = 0,
     this.flickerTimer = 0,
     this.horrorIntensity = 0,
+    this.damageCooldown = 0,
+    this.damagePerSecond = 8.0,
+    this.noiseAlertTimer = 0,
+    this.isAlertedByNoise = false,
   })  : x = x ?? 15.0,
         y = y ?? 15.0,
         angle = 0;
@@ -65,8 +77,21 @@ class Ghost {
       horrorIntensity = max(0, horrorIntensity - delta * 0.5);
     }
 
-    // Speed increases over time and when chasing
-    currentSpeed = baseSpeed + horrorIntensity * 0.01;
+    // Speed increases with proximity and over time
+    currentSpeed = baseSpeed + horrorIntensity * 0.012;
+
+    // Update damage cooldown
+    if (damageCooldown > 0) {
+      damageCooldown -= delta;
+    }
+
+    // Handle noise alert
+    if (isAlertedByNoise) {
+      noiseAlertTimer -= delta;
+      if (noiseAlertTimer <= 0) {
+        isAlertedByNoise = false;
+      }
+    }
 
     // State machine
     switch (state) {
@@ -82,6 +107,9 @@ class Ghost {
       case GhostState.stalking:
         _updateStalking(player, map, delta, distanceToPlayer);
         break;
+      case GhostState.noiseAlert:
+        _updateNoiseAlert(player, map, delta, distanceToPlayer);
+        break;
     }
 
     // Visibility - ghost flickers in and out
@@ -89,32 +117,54 @@ class Ghost {
     if (horrorIntensity > 0.3) {
       isVisible = true;
     } else if (horrorIntensity > 0.1) {
-      // Flicker visibility
       isVisible = sin(visibilityTimer * 3) > 0;
     } else {
-      // Rarely visible when far
       isVisible = sin(visibilityTimer * 0.5) > 0.95;
     }
 
-    // Ghost flicker timer
     flickerTimer += delta;
+  }
+
+  /// Calculate damage to player based on proximity
+  /// Returns damage amount (0 if not damaging)
+  double calculateDamage(Player player, double delta) {
+    final dx = player.x - x;
+    final dy = player.y - y;
+    final distance = sqrt(dx * dx + dy * dy);
+
+    // Close proximity damage (within 2.5 units but not touching)
+    if (distance < 2.5 && distance > killDistance && state == GhostState.chase) {
+      if (damageCooldown <= 0) {
+        final damage = damagePerSecond * delta * (1.0 - distance / 2.5);
+        damageCooldown = 0.5; // Damage every 0.5 seconds
+        return damage;
+      }
+    }
+
+    return 0;
+  }
+
+  /// Alert ghost to a noise at a specific location
+  void alertToNoise(double noiseX, double noiseY) {
+    isAlertedByNoise = true;
+    noiseAlertTimer = 8.0; // Chase for 8 seconds after noise
+    if (state != GhostState.chase) {
+      state = GhostState.noiseAlert;
+      stateTimer = 0;
+    }
   }
 
   /// Patrol state - wander around the map
   void _updatePatrol(Player player, List<List<int>> map, double delta, double distanceToPlayer) {
-    // Patrol: walk in a direction, occasionally change
     patrolTimer += delta;
     if (patrolTimer > 3.0 + Random().nextDouble() * 5.0) {
       patrolTimer = 0;
       patrolAngle = Random().nextDouble() * 2 * pi;
     }
 
-    // Move in patrol direction
     _moveInDirection(patrolAngle, currentSpeed * 0.5, map, delta);
 
-    // Detect player if close enough or if flashlight is on and facing ghost
     if (distanceToPlayer < chaseDistance) {
-      // Check if player can "see" the ghost (rough check)
       final angleToPlayer = atan2(player.y - y, player.x - x);
       if (distanceToPlayer < chaseDistance * 0.5 || player.flashlightBeamVisible) {
         state = GhostState.chase;
@@ -122,7 +172,6 @@ class Ghost {
       }
     }
 
-    // Random chance to start stalking
     if (distanceToPlayer < chaseDistance * 1.5 && Random().nextDouble() < 0.001) {
       state = GhostState.stalking;
       stateTimer = 0;
@@ -133,12 +182,9 @@ class Ghost {
   void _updateChase(Player player, List<List<int>> map, double delta, double distanceToPlayer) {
     stateTimer += delta;
 
-    // Move directly toward player with wall avoidance
     final angleToPlayer = atan2(player.y - y, player.x - x);
 
-    // Try direct path first
     if (!_moveInDirection(angleToPlayer, currentSpeed, map, delta)) {
-      // If blocked, try sliding along walls
       if (!_moveInDirection(angleToPlayer + pi / 4, currentSpeed * 0.8, map, delta)) {
         if (!_moveInDirection(angleToPlayer - pi / 4, currentSpeed * 0.8, map, delta)) {
           if (!_moveInDirection(angleToPlayer + pi / 2, currentSpeed * 0.6, map, delta)) {
@@ -148,67 +194,83 @@ class Ghost {
       }
     }
 
-    angle = angleToPlayer; // Face the player
+    angle = angleToPlayer;
 
-    // If player gets too far, switch to lost
     if (distanceToPlayer > chaseDistance * 2.0) {
       state = GhostState.lost;
       lostTimer = 0;
     }
-
-    // If very close, stay in chase (this leads to kill check in GameState)
   }
 
   /// Lost state - lost sight of player, search area
   void _updateLost(Player player, List<List<int>> map, double delta, double distanceToPlayer) {
     lostTimer += delta;
 
-    // Move toward last known position (player's current position as approximation)
     final angleToPlayer = atan2(player.y - y, player.x - x);
-
-    // Slowly move toward player but not directly
     _moveInDirection(angleToPlayer + sin(lostTimer * 2) * 0.5, currentSpeed * 0.3, map, delta);
 
-    // Re-detect if player is close
     if (distanceToPlayer < chaseDistance * 0.7) {
       state = GhostState.chase;
       stateTimer = 0;
     }
 
-    // Give up after a while
     if (lostTimer > 10.0) {
       state = GhostState.patrol;
       patrolTimer = 0;
     }
   }
 
-  /// Stalking state - follow player at a distance, creating tension
+  /// Stalking state - follow player at a distance
   void _updateStalking(Player player, List<List<int>> map, double delta, double distanceToPlayer) {
     stateTimer += delta;
 
     final angleToPlayer = atan2(player.y - y, player.x - x);
 
     if (distanceToPlayer > 5.0) {
-      // Move closer but slowly
       _moveInDirection(angleToPlayer, currentSpeed * 0.4, map, delta);
     } else if (distanceToPlayer < 3.0) {
-      // Back off slightly to maintain distance
       _moveInDirection(angleToPlayer + pi, currentSpeed * 0.2, map, delta);
     }
-    // Otherwise stay still
 
     angle = angleToPlayer;
 
-    // Transition to chase if player sees ghost
     if (distanceToPlayer < 3.0 && stateTimer > 5.0) {
       state = GhostState.chase;
       stateTimer = 0;
     }
 
-    // Go back to patrol after a while
     if (stateTimer > 15.0) {
       state = GhostState.patrol;
       patrolTimer = 0;
+    }
+  }
+
+  /// Noise alert state - ghost heard a noise and is going to investigate
+  void _updateNoiseAlert(Player player, List<List<int>> map, double delta, double distanceToPlayer) {
+    stateTimer += delta;
+
+    // Rush toward the player's last known position (approximated as current position)
+    final angleToPlayer = atan2(player.y - y, player.x - x);
+
+    // Move faster than normal chase when alerted by noise
+    if (!_moveInDirection(angleToPlayer, currentSpeed * 1.3, map, delta)) {
+      if (!_moveInDirection(angleToPlayer + pi / 3, currentSpeed * 1.0, map, delta)) {
+        _moveInDirection(angleToPlayer - pi / 3, currentSpeed * 1.0, map, delta);
+      }
+    }
+
+    angle = angleToPlayer;
+
+    // If player is found, switch to regular chase
+    if (distanceToPlayer < chaseDistance) {
+      state = GhostState.chase;
+      stateTimer = 0;
+    }
+
+    // Give up after noise timer expires
+    if (noiseAlertTimer <= 0) {
+      state = GhostState.lost;
+      lostTimer = 0;
     }
   }
 
@@ -223,13 +285,11 @@ class Ghost {
     bool movedX = false;
     bool movedY = false;
 
-    // Try X movement
     if (GameMap.isWalkable(newX, y, map)) {
       x = newX;
       movedX = true;
     }
 
-    // Try Y movement
     if (GameMap.isWalkable(x, newY, map)) {
       y = newY;
       movedY = true;
@@ -238,14 +298,14 @@ class Ghost {
     return movedX || movedY;
   }
 
-  /// Check if ghost has caught the player
+  /// Check if ghost has caught the player (instant kill range)
   bool hasCaughtPlayer(Player player) {
     final dx = player.x - x;
     final dy = player.y - y;
     return sqrt(dx * dx + dy * dy) < killDistance;
   }
 
-  /// Reset ghost to starting position
+  /// Reset ghost
   void reset() {
     x = 15.0;
     y = 15.0;
@@ -260,13 +320,17 @@ class Ghost {
     flickerTimer = 0;
     horrorIntensity = 0;
     currentSpeed = baseSpeed;
+    damageCooldown = 0;
+    noiseAlertTimer = 0;
+    isAlertedByNoise = false;
   }
 }
 
 /// Ghost AI states
 enum GhostState {
-  patrol,   // Wandering around
-  chase,    // Actively chasing player
-  lost,     // Lost sight of player, searching
-  stalking, // Following at a distance
+  patrol,      // Wandering around
+  chase,       // Actively chasing player
+  lost,        // Lost sight of player, searching
+  stalking,    // Following at a distance
+  noiseAlert,  // Alerted by noise, rushing to investigate
 }

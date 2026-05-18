@@ -7,6 +7,7 @@ class GameHUD extends StatelessWidget {
   final double stamina;
   final double health;
   final Set<String> inventory;
+  final bool hasCrowbar;
 
   const GameHUD({
     super.key,
@@ -15,6 +16,7 @@ class GameHUD extends StatelessWidget {
     required this.stamina,
     required this.health,
     required this.inventory,
+    this.hasCrowbar = false,
   });
 
   @override
@@ -25,27 +27,15 @@ class GameHUD extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Score
-          _hudItem(
-            icon: Icons.star,
-            label: 'SCORE',
-            value: score.toString(),
-            color: const Color(0xFFFFD700),
-          ),
+          _hudItem(icon: Icons.star, label: 'SCORE', value: score.toString(), color: const Color(0xFFFFD700)),
           const SizedBox(height: 6),
-          // Time
-          _hudItem(
-            icon: Icons.access_time,
-            label: 'TIME',
-            value: gameTime,
-            color: Colors.white38,
-          ),
+          _hudItem(icon: Icons.access_time, label: 'TIME', value: gameTime, color: Colors.white38),
+          const SizedBox(height: 6),
+          // Health bar (PROMINENT - red when low)
+          _healthBar(),
           const SizedBox(height: 6),
           // Stamina bar
           _staminaBar(),
-          const SizedBox(height: 6),
-          // Health bar
-          _healthBar(),
           // Inventory indicators
           if (inventory.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -56,30 +46,66 @@ class GameHUD extends StatelessWidget {
     );
   }
 
-  Widget _hudItem({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
+  Widget _hudItem({required IconData icon, required String label, required String value, required Color color}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, color: color, size: 12),
         const SizedBox(width: 4),
-        Text(
-          '$label: ',
-          style: TextStyle(
-            color: Colors.white38,
-            fontSize: 10,
-            fontFamily: 'Courier',
+        Text('$label: ', style: const TextStyle(color: Colors.white38, fontSize: 10, fontFamily: 'Courier')),
+        Text(value, style: TextStyle(color: color, fontSize: 12, fontFamily: 'Courier', fontWeight: FontWeight.bold)),
+      ],
+    );
+  }
+
+  Widget _healthBar() {
+    final healthColor = health > 60
+        ? Colors.green
+        : health > 30
+            ? Colors.yellow
+            : Colors.red;
+
+    // Pulse when low health
+    final isLow = health < 30;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.favorite, color: isLow ? Colors.red : Colors.white24, size: 12),
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 70,
+          height: 5,
+          child: Stack(
+            children: [
+              // Background
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Health fill
+              FractionallySizedBox(
+                widthFactor: (health / 100.0).clamp(0.0, 1.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: healthColor,
+                    borderRadius: BorderRadius.circular(2),
+                    boxShadow: isLow ? [
+                      BoxShadow(color: Colors.red.withOpacity(0.5), blurRadius: 6),
+                    ] : null,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        Text(
-          value,
+        const SizedBox(width: 4),
+        Text('${health.toInt()}',
           style: TextStyle(
-            color: color,
-            fontSize: 12,
+            color: healthColor,
+            fontSize: 9,
             fontFamily: 'Courier',
             fontWeight: FontWeight.bold,
           ),
@@ -113,31 +139,6 @@ class GameHUD extends StatelessWidget {
     );
   }
 
-  Widget _healthBar() {
-    final healthColor = health > 50
-        ? Colors.green
-        : health > 20
-            ? Colors.yellow
-            : Colors.red;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.favorite, color: Colors.white24, size: 12),
-        const SizedBox(width: 4),
-        SizedBox(
-          width: 60,
-          height: 4,
-          child: LinearProgressIndicator(
-            value: health / 100.0,
-            backgroundColor: Colors.white10,
-            valueColor: AlwaysStoppedAnimation(healthColor),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _inventoryDisplay() {
     return Container(
       padding: const EdgeInsets.all(4),
@@ -149,14 +150,7 @@ class GameHUD extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'INVENTORY',
-            style: TextStyle(
-              color: Colors.white24,
-              fontSize: 8,
-              fontFamily: 'Courier',
-            ),
-          ),
+          const Text('INVENTORY', style: TextStyle(color: Colors.white24, fontSize: 8, fontFamily: 'Courier')),
           const SizedBox(height: 2),
           Wrap(
             spacing: 4,
@@ -167,6 +161,9 @@ class GameHUD extends StatelessWidget {
               if (item.startsWith('key_')) {
                 icon = Icons.vpn_key;
                 color = const Color(0xFFFFD700);
+              } else if (item == 'crowbar') {
+                icon = Icons.build;
+                color = const Color(0xFFFF8800);
               } else {
                 icon = Icons.battery_charging_full;
                 color = Colors.green;

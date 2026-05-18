@@ -259,6 +259,15 @@ class RaycastPainter extends CustomPainter {
       case WallTextureType.brick:
         _textureBrick(canvas, strip, wallTop, wallBottom, stripWidth, texAlpha);
         break;
+      case WallTextureType.morgue:
+        _textureMorgue(canvas, strip, wallTop, wallBottom, stripWidth, texAlpha);
+        break;
+      case WallTextureType.icuTile:
+        _textureIcuTile(canvas, strip, wallTop, wallBottom, stripWidth, texAlpha);
+        break;
+      case WallTextureType.operatingRoom:
+        _textureOperatingRoom(canvas, strip, wallTop, wallBottom, stripWidth, texAlpha);
+        break;
     }
   }
 
@@ -639,6 +648,171 @@ class RaycastPainter extends CustomPainter {
     }
   }
 
+  /// Morgue locker wall: steel compartment doors with handles
+  void _textureMorgue(Canvas canvas, WallStrip strip,
+      double wallTop, double wallBottom, double stripWidth, double alpha) {
+    final lockerHeight = (wallBottom - wallTop) / 4;
+    if (lockerHeight < 6) return;
+
+    // Locker compartment borders (dark steel lines)
+    final borderPaint = Paint()
+      ..color = Color.lerp(Colors.transparent, const Color(0xFF2A3A4A), alpha * 1.5)!
+      ..strokeWidth = 2;
+
+    // Horizontal borders between lockers
+    for (var y = wallTop; y < wallBottom; y += lockerHeight) {
+      canvas.drawLine(
+        Offset(strip.rayIndex * stripWidth, y),
+        Offset((strip.rayIndex + 1) * stripWidth, y),
+        borderPaint,
+      );
+    }
+
+    // Vertical center line (locker door gap)
+    final centerX = strip.rayIndex * stripWidth + stripWidth / 2;
+    canvas.drawLine(
+      Offset(centerX, wallTop),
+      Offset(centerX, wallBottom),
+      borderPaint..strokeWidth = 1,
+    );
+
+    // Locker handles (small rectangles on right side of each locker)
+    final handlePaint = Paint()
+      ..color = Color.lerp(Colors.transparent, const Color(0xFF8A9AAA), alpha * 1.2)!;
+
+    for (var i = 0; i < 4; i++) {
+      final handleY = wallTop + i * lockerHeight + lockerHeight * 0.4;
+      canvas.drawRect(
+        Rect.fromLTWH(centerX + stripWidth * 0.1, handleY, stripWidth * 0.15, lockerHeight * 0.08),
+        handlePaint,
+      );
+    }
+
+    // Rust stains on some lockers
+    final rng = math.Random(strip.hitX.toInt() * 29 + strip.hitY.toInt());
+    if (rng.nextDouble() > 0.5) {
+      final rustY = wallTop + rng.nextDouble() * (wallBottom - wallTop);
+      final rustPaint = Paint()
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF5A4A3A), alpha * 0.8)!;
+      canvas.drawRect(
+        Rect.fromLTWH(strip.rayIndex * stripWidth, rustY, stripWidth + 1, lockerHeight * 0.2),
+        rustPaint,
+      );
+    }
+  }
+
+  /// ICU blue tile wall: hospital white-blue tiles with peeling
+  void _textureIcuTile(Canvas canvas, WallStrip strip,
+      double wallTop, double wallBottom, double stripWidth, double alpha) {
+    final gridSize = (wallBottom - wallTop) / 5;
+    if (gridSize < 5) return;
+
+    // Blue-white tile grout
+    final groutPaint = Paint()
+      ..color = Color.lerp(Colors.transparent, const Color(0xFF5A7A9A), alpha * 0.8)!
+      ..strokeWidth = 1;
+
+    // Horizontal grout lines
+    for (var y = wallTop; y < wallBottom; y += gridSize) {
+      canvas.drawLine(
+        Offset(strip.rayIndex * stripWidth, y),
+        Offset((strip.rayIndex + 1) * stripWidth, y),
+        groutPaint,
+      );
+    }
+
+    // Vertical grout lines (offset every other row)
+    final tileIndex = (strip.textureX * 4).floor();
+    for (var i = 0; i < 5; i++) {
+      final offset = (i % 2 == 0) ? 0.0 : stripWidth * 0.5;
+      canvas.drawLine(
+        Offset(strip.rayIndex * stripWidth + offset, wallTop + i * gridSize),
+        Offset(strip.rayIndex * stripWidth + offset, wallTop + (i + 1) * gridSize),
+        groutPaint..strokeWidth = 0.5,
+      );
+    }
+
+    // Peeling tile effect (missing tile patches)
+    final rng = math.Random(strip.hitX.toInt() * 43 + strip.hitY.toInt());
+    if (rng.nextDouble() > 0.6) {
+      final peelY = wallTop + rng.nextDouble() * (wallBottom - wallTop);
+      final peelPaint = Paint()
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF4A5A6A), alpha * 0.6)!;
+      canvas.drawRect(
+        Rect.fromLTWH(strip.rayIndex * stripWidth, peelY, stripWidth + 1, gridSize * 0.5),
+        peelPaint,
+      );
+    }
+
+    // Water/mold stain
+    if (rng.nextDouble() > 0.7) {
+      final stainY = wallTop + (wallBottom - wallTop) * rng.nextDouble() * 0.5;
+      final stainPaint = Paint()
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF3A4A5A), alpha * 0.4)!;
+      canvas.drawRect(
+        Rect.fromLTWH(strip.rayIndex * stripWidth, stainY, stripWidth + 1, gridSize * 0.3),
+        stainPaint,
+      );
+    }
+  }
+
+  /// Operating Room wall: pale green-white tiles with blood splatters
+  void _textureOperatingRoom(Canvas canvas, WallStrip strip,
+      double wallTop, double wallBottom, double stripWidth, double alpha) {
+    final gridSize = (wallBottom - wallTop) / 6;
+    if (gridSize < 5) return;
+
+    // Pale green tile grout
+    final groutPaint = Paint()
+      ..color = Color.lerp(Colors.transparent, const Color(0xFF5A6A5A), alpha * 0.7)!
+      ..strokeWidth = 0.8;
+
+    // Horizontal tile lines
+    for (var y = wallTop; y < wallBottom; y += gridSize) {
+      canvas.drawLine(
+        Offset(strip.rayIndex * stripWidth, y),
+        Offset((strip.rayIndex + 1) * stripWidth, y),
+        groutPaint,
+      );
+    }
+
+    // Vertical tile lines
+    for (var i = 0; i < 6; i++) {
+      final offset = (i % 2 == 0) ? 0.0 : stripWidth * 0.5;
+      canvas.drawLine(
+        Offset(strip.rayIndex * stripWidth + offset, wallTop + i * gridSize),
+        Offset(strip.rayIndex * stripWidth + offset, wallTop + (i + 1) * gridSize),
+        groutPaint..strokeWidth = 0.5,
+      );
+    }
+
+    // Blood splatters (OR has LOTS of blood)
+    final rng = math.Random(strip.hitX.toInt() * 71 + strip.hitY.toInt());
+    final numSplats = rng.nextInt(3) + 1;
+    for (var i = 0; i < numSplats; i++) {
+      final splatY = wallTop + rng.nextDouble() * (wallBottom - wallTop);
+      final splatHeight = rng.nextDouble() * gridSize * 0.4 + 2;
+      final splatPaint = Paint()
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF660000), alpha * 2.0)!;
+      canvas.drawRect(
+        Rect.fromLTWH(strip.rayIndex * stripWidth, splatY, stripWidth + 1, splatHeight),
+        splatPaint,
+      );
+    }
+
+    // Blood drip trail
+    if (rng.nextDouble() > 0.4) {
+      final dripStartY = wallTop + (wallBottom - wallTop) * rng.nextDouble() * 0.3;
+      final dripLength = (wallBottom - wallTop) * (0.2 + rng.nextDouble() * 0.5);
+      final dripPaint = Paint()
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF880000), alpha * 1.5)!;
+      canvas.drawRect(
+        Rect.fromLTWH(strip.rayIndex * stripWidth + stripWidth * 0.3, dripStartY, stripWidth * 0.4, dripLength),
+        dripPaint,
+      );
+    }
+  }
+
   /// Draw ghost as an animated 2D billboard sprite
   /// Features: Swaying animation, flowing hair, glowing eyes, glitch distortion
   void _drawGhostSprite(Canvas canvas, Size size, List<WallStrip> strips, double stripWidth) {
@@ -891,6 +1065,7 @@ class RaycastPainter extends CustomPainter {
   void _drawObjectSprites(Canvas canvas, Size size, List<WallStrip> strips, double stripWidth) {
     for (final obj in gameState.interactiveObjects) {
       if (obj.isCollected || obj.isOpened) continue;
+      if (obj.type == InteractionType.container && obj.isSearched) continue;
 
       final dx = obj.x - gameState.player.x;
       final dy = obj.y - gameState.player.y;
@@ -931,22 +1106,63 @@ class RaycastPainter extends CustomPainter {
             itemColor = const Color(0xFFFFD700);
           } else if (obj.id.startsWith('battery_')) {
             itemColor = const Color(0xFF00FF00);
+          } else if (obj.id.startsWith('medkit_')) {
+            itemColor = const Color(0xFF00FF88);
+          } else if (obj.id == 'crowbar') {
+            itemColor = const Color(0xFFFF8800);
           } else {
             itemColor = const Color(0xFFFFFFFF);
           }
           final paint = Paint()
             ..color = Color.lerp(const Color(0xFF000000), itemColor, fogFactor * 0.8)!;
           final floatOffset = math.sin(gameState.gameTime * 3) * 3;
-          canvas.drawOval(
-            Rect.fromLTWH(screenX - spriteWidth * 0.3, spriteY + spriteHeight * 0.3 + floatOffset, spriteWidth * 0.6, spriteHeight * 0.4),
-            paint,
-          );
-          final glowPaint = Paint()
-            ..color = Color.lerp(const Color(0x00000000), itemColor.withOpacity(0.3), fogFactor)!;
-          canvas.drawOval(
-            Rect.fromLTWH(screenX - spriteWidth / 2, spriteY + spriteHeight * 0.1 + floatOffset, spriteWidth, spriteHeight * 0.8),
-            glowPaint,
-          );
+          // Medkit = cross shape
+          if (obj.id.startsWith('medkit_')) {
+            // White box with red cross
+            final boxPaint = Paint()
+              ..color = Color.lerp(const Color(0xFF000000), const Color(0xFFDDDDDD), fogFactor * 0.7)!;
+            canvas.drawRect(
+              Rect.fromLTWH(screenX - spriteWidth * 0.3, spriteY + spriteHeight * 0.2 + floatOffset, spriteWidth * 0.6, spriteHeight * 0.5),
+              boxPaint,
+            );
+            final crossPaint = Paint()
+              ..color = Color.lerp(const Color(0xFF000000), const Color(0xFFFF0000), fogFactor * 0.9)!;
+            // Horizontal bar
+            canvas.drawRect(
+              Rect.fromLTWH(screenX - spriteWidth * 0.2, spriteY + spriteHeight * 0.38 + floatOffset, spriteWidth * 0.4, spriteHeight * 0.08),
+              crossPaint,
+            );
+            // Vertical bar
+            canvas.drawRect(
+              Rect.fromLTWH(screenX - spriteWidth * 0.06, spriteY + spriteHeight * 0.25 + floatOffset, spriteWidth * 0.12, spriteHeight * 0.35),
+              crossPaint,
+            );
+          } else if (obj.id == 'crowbar') {
+            // Crowbar = orange/red metallic bar
+            final barPaint = Paint()
+              ..color = Color.lerp(const Color(0xFF000000), const Color(0xFFAA5500), fogFactor * 0.8)!;
+            canvas.drawRect(
+              Rect.fromLTWH(screenX - spriteWidth * 0.4, spriteY + spriteHeight * 0.4 + floatOffset, spriteWidth * 0.8, spriteHeight * 0.1),
+              barPaint,
+            );
+            // Curved end
+            canvas.drawOval(
+              Rect.fromLTWH(screenX + spriteWidth * 0.25, spriteY + spriteHeight * 0.3 + floatOffset, spriteWidth * 0.2, spriteHeight * 0.2),
+              barPaint,
+            );
+          } else {
+            // Keys/battery - floating glow
+            canvas.drawOval(
+              Rect.fromLTWH(screenX - spriteWidth * 0.3, spriteY + spriteHeight * 0.3 + floatOffset, spriteWidth * 0.6, spriteHeight * 0.4),
+              paint,
+            );
+            final glowPaint = Paint()
+              ..color = Color.lerp(const Color(0x00000000), itemColor.withOpacity(0.3), fogFactor)!;
+            canvas.drawOval(
+              Rect.fromLTWH(screenX - spriteWidth / 2, spriteY + spriteHeight * 0.1 + floatOffset, spriteWidth, spriteHeight * 0.8),
+              glowPaint,
+            );
+          }
 
         case InteractionType.note:
           final paint = Paint()
@@ -962,6 +1178,70 @@ class RaycastPainter extends CustomPainter {
               Offset(screenX - spriteWidth * 0.25, spriteY + spriteHeight * 0.35 + i * spriteHeight * 0.1),
               Offset(screenX + spriteWidth * 0.25, spriteY + spriteHeight * 0.35 + i * spriteHeight * 0.1),
               linePaint,
+            );
+          }
+
+        case InteractionType.container:
+          // Container = wooden/metal cabinet or drawer
+          final isSearched = obj.isSearched;
+          final containerColor = isSearched
+              ? const Color(0xFF3A3A3A) // Greyed out after searched
+              : (obj.id.startsWith('morgue_')
+                  ? const Color(0xFF5A6A7A) // Steel morgue drawer
+                  : obj.id.startsWith('cabinet_')
+                      ? const Color(0xFF8A7A5A) // Wooden cabinet
+                      : const Color(0xFF6A5A4A)); // Default drawer
+
+          final containerPaint = Paint()
+            ..color = Color.lerp(const Color(0xFF000000), containerColor, fogFactor * 0.8)!;
+
+          // Container body
+          final cHeight = spriteHeight * 0.7;
+          final cWidth = spriteWidth * 0.8;
+          canvas.drawRect(
+            Rect.fromLTWH(screenX - cWidth / 2, spriteY + spriteHeight * 0.15, cWidth, cHeight),
+            containerPaint,
+          );
+
+          // Container border
+          final borderPaint = Paint()
+            ..color = Color.lerp(const Color(0xFF000000), const Color(0xFF4A3A2A), fogFactor * 0.6)!
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5;
+          canvas.drawRect(
+            Rect.fromLTWH(screenX - cWidth / 2, spriteY + spriteHeight * 0.15, cWidth, cHeight),
+            borderPaint,
+          );
+
+          // Drawer/cabinet handle
+          if (!isSearched) {
+            final handlePaint = Paint()
+              ..color = Color.lerp(const Color(0xFF000000), const Color(0xFFAA9A6A), fogFactor * 0.7)!;
+            canvas.drawRect(
+              Rect.fromLTWH(screenX - cWidth * 0.15, spriteY + spriteHeight * 0.45, cWidth * 0.3, cHeight * 0.08),
+              handlePaint,
+            );
+            // Glow hint (searchable indicator)
+            final glowPulse = math.sin(gameState.gameTime * 2) * 0.3 + 0.7;
+            final glowPaint = Paint()
+              ..color = Color.lerp(
+                Colors.transparent,
+                obj.makesNoise
+                    ? const Color(0xFFFF4400) // Orange glow = loud
+                    : const Color(0xFF00FF00), // Green glow = quiet
+                fogFactor * 0.2 * glowPulse,
+              )!;
+            canvas.drawOval(
+              Rect.fromLTWH(screenX - cWidth / 2 - 3, spriteY + spriteHeight * 0.1, cWidth + 6, cHeight + 10),
+              glowPaint,
+            );
+          } else {
+            // Already searched - show open drawer
+            final openPaint = Paint()
+              ..color = Color.lerp(const Color(0xFF000000), const Color(0xFF1A1A1A), fogFactor * 0.5)!;
+            canvas.drawRect(
+              Rect.fromLTWH(screenX - cWidth * 0.3, spriteY + spriteHeight * 0.55, cWidth * 0.6, cHeight * 0.3),
+              openPaint,
             );
           }
       }
