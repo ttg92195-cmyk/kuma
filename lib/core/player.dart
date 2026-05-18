@@ -3,6 +3,7 @@ import 'game_map.dart';
 
 /// Player state and movement controller
 /// CRITICAL: Uses double values for smooth continuous movement
+/// Movement is RELATIVE to player facing direction (Mobile Legends style)
 class Player {
   // Position (double for smooth movement - NOT grid-locked)
   double x;
@@ -50,38 +51,68 @@ class Player {
         currentRotSpeed = 3.0;
 
   /// Apply joystick input for SMOOTH continuous movement
+  /// RELATIVE to player facing direction (Mobile Legends / FPS style)
+  ///
   /// moveX: -1 to 1 (left/right strafe)
   /// moveY: -1 to 1 (forward/backward)
+  ///
+  /// How it works:
+  /// - Joystick UP → Player moves FORWARD in the direction they're facing
+  /// - Joystick DOWN → Player moves BACKWARD
+  /// - Joystick LEFT → Player STRAFES LEFT (relative to their view)
+  /// - Joystick RIGHT → Player STRAFES RIGHT (relative to their view)
+  ///
+  /// Math: Uses combined direction vector from forward + strafe,
+  /// normalized to prevent faster diagonal movement
   void applyJoystickInput(
     double moveX,
     double moveY,
     double delta,
     bool Function(double, double) canWalk,
   ) {
-    bool moved = false;
+    // Dead zone - ignore very small inputs
+    if (moveX.abs() < 0.08 && moveY.abs() < 0.08) {
+      stopMoving();
+      return;
+    }
+
     final runMultiplier = isRunning ? 1.8 : 1.0;
     final speed = moveSpeed * runMultiplier * delta;
 
-    // Forward/Backward movement
-    if (moveY.abs() > 0.1) {
-      final moveAmount = speed * moveY;
-      final newX = x + cos(angle) * moveAmount;
-      final newY = y + sin(angle) * moveAmount;
+    // Combine forward and strafe into a single direction vector
+    // Forward direction: (cos(angle), sin(angle))
+    // Strafe LEFT direction: (cos(angle - pi/2), sin(angle - pi/2))
+    //   = (sin(angle), -cos(angle))
+    //
+    // In our coordinate system (Y-down, angle=0 faces RIGHT):
+    //   - angle - pi/2 gives the LEFT perpendicular direction
+    //   - Positive moveX = strafe LEFT, Negative moveX = strafe RIGHT
 
-      // Sliding collision: try each axis independently
-      if (canWalk(newX, y)) { x = newX; moved = true; }
-      if (canWalk(x, newY)) { y = newY; moved = true; }
+    double forward = moveY;  // +1 = forward, -1 = backward
+    double strafe = moveX;   // +1 = strafe left, -1 = strafe right
+
+    // Normalize diagonal movement so it's not faster than cardinal
+    final magnitude = sqrt(forward * forward + strafe * strafe);
+    if (magnitude > 1.0) {
+      forward /= magnitude;
+      strafe /= magnitude;
     }
 
-    // Strafe movement (left/right)
-    if (moveX.abs() > 0.1) {
-      final strafeAmount = speed * moveX * 0.7; // Strafe is slower
-      final newX = x + cos(angle + pi / 2) * strafeAmount;
-      final newY = y + sin(angle + pi / 2) * strafeAmount;
+    // Combined movement direction in world space
+    // Forward vector: (cos(angle), sin(angle))
+    // Strafe-left vector: (sin(angle), -cos(angle))
+    final moveDirX = cos(angle) * forward + sin(angle) * strafe;
+    final moveDirY = sin(angle) * forward + (-cos(angle)) * strafe;
 
-      if (canWalk(newX, y)) { x = newX; moved = true; }
-      if (canWalk(x, newY)) { y = newY; moved = true; }
-    }
+    // Apply movement with sliding collision
+    final newX = x + moveDirX * speed;
+    final newY = y + moveDirY * speed;
+
+    // Sliding collision: try each axis independently
+    // This allows "sliding" along walls instead of getting stuck
+    bool moved = false;
+    if (canWalk(newX, y)) { x = newX; moved = true; }
+    if (canWalk(x, newY)) { y = newY; moved = true; }
 
     isMoving = moved;
     if (isMoving) _updateBob(delta);

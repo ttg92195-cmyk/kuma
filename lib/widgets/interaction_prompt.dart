@@ -3,6 +3,7 @@ import '../core/game_state.dart';
 import '../core/game_map.dart' show InteractionType;
 
 /// Interaction prompt widget - shows "Open", "Pick up", "Read" when near objects
+/// Positioned at TOP-CENTER so it doesn't block the main game view
 class InteractionPrompt extends StatelessWidget {
   final GameState gameState;
 
@@ -41,9 +42,9 @@ class InteractionPrompt extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Object label
+          // Object label (e.g. "Ward A Door", "Crumpled Note")
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
             decoration: BoxDecoration(
               color: Colors.black87,
               borderRadius: BorderRadius.circular(4),
@@ -53,16 +54,16 @@ class InteractionPrompt extends StatelessWidget {
               obj.label,
               style: TextStyle(
                 color: accentColor,
-                fontSize: 13,
+                fontSize: 12,
                 fontFamily: 'Courier',
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          // Action button
+          const SizedBox(height: 6),
+          // Action button hint with E key indicator
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
               color: Colors.black87,
               borderRadius: BorderRadius.circular(6),
@@ -78,19 +79,19 @@ class InteractionPrompt extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(actionIcon, color: accentColor, size: 20),
-                const SizedBox(width: 10),
+                Icon(actionIcon, color: accentColor, size: 18),
+                const SizedBox(width: 8),
                 Text(
                   actionText,
                   style: TextStyle(
                     color: accentColor,
-                    fontSize: 16,
+                    fontSize: 14,
                     fontFamily: 'Courier',
                     fontWeight: FontWeight.bold,
                     letterSpacing: 2,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
@@ -101,7 +102,7 @@ class InteractionPrompt extends StatelessWidget {
                     'E',
                     style: TextStyle(
                       color: Colors.white54,
-                      fontSize: 12,
+                      fontSize: 11,
                       fontFamily: 'Courier',
                       fontWeight: FontWeight.bold,
                     ),
@@ -113,7 +114,7 @@ class InteractionPrompt extends StatelessWidget {
           // Key requirement hint
           if (obj.type == InteractionType.door && obj.requiredKey != null)
             Padding(
-              padding: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.only(top: 6),
               child: Text(
                 gameState.inventory.contains(obj.requiredKey)
                     ? 'Use ${obj.requiredKey!.replaceAll('_', ' ')}'
@@ -122,7 +123,7 @@ class InteractionPrompt extends StatelessWidget {
                   color: gameState.inventory.contains(obj.requiredKey)
                       ? Colors.green
                       : Colors.red,
-                  fontSize: 11,
+                  fontSize: 10,
                   fontFamily: 'Courier',
                 ),
               ),

@@ -130,16 +130,16 @@ class RaycastPainter extends CustomPainter {
       gameState.currentMap.length,
     );
 
-    // Draw ceiling
+    // Draw ceiling - darker for more horror atmosphere
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height / 2),
-      Paint()..color = const Color(0xFF0D0D12),
+      Paint()..color = const Color(0xFF08080C),
     );
 
-    // Draw floor
+    // Draw floor - darker for more horror atmosphere
     canvas.drawRect(
       Rect.fromLTWH(0, size.height / 2, size.width, size.height / 2),
-      Paint()..color = const Color(0xFF14141A),
+      Paint()..color = const Color(0xFF0C0C10),
     );
 
     // Render wall strips with procedural textures
@@ -149,8 +149,8 @@ class RaycastPainter extends CustomPainter {
       if (strip.distance <= 0) continue;
 
       final wallHeight = size.height / strip.distance;
-      final wallTop = size.height / 2 - wallHeight / 2;
-      final wallBottom = size.height / 2 + wallHeight / 2;
+      final wallTop = size.height / 2 - wallHeight / 2 + player.bobAmount;
+      final wallBottom = size.height / 2 + wallHeight / 2 + player.bobAmount;
 
       final lightIntensity = RaycastEngine.calculateFlashlightIntensity(
         strip.rayAngle, player.angle, strip.distance,
@@ -204,8 +204,8 @@ class RaycastPainter extends CustomPainter {
     // Camera glitch effect when ghost is near
     _drawCameraGlitch(canvas, size);
 
-    // Vignette
-    _drawVignette(canvas, size);
+    // Enhanced Flashlight Vignette - dramatic dark overlay with circular light
+    _drawFlashlightVignette(canvas, size);
 
     // Jumpscare flash
     if (gameState.jumpscareActive) {
@@ -262,7 +262,7 @@ class RaycastPainter extends CustomPainter {
     }
   }
 
-  /// Concrete texture: horizontal mortar lines
+  /// Concrete texture: horizontal mortar lines with stain variation
   void _textureConcrete(Canvas canvas, WallStrip strip,
       double wallTop, double wallBottom, double stripWidth, double alpha) {
     final lineSpacing = (wallBottom - wallTop) / 6;
@@ -280,7 +280,19 @@ class RaycastPainter extends CustomPainter {
       );
     }
 
-    // Vertical crack lines (based on textureX)
+    // Stain/dirt patches (based on textureX position)
+    final rng = math.Random(strip.hitX.toInt() * 97 + strip.hitY.toInt());
+    if (rng.nextDouble() > 0.6) {
+      final stainY = wallTop + (wallBottom - wallTop) * rng.nextDouble();
+      final stainPaint = Paint()
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF3A3530), alpha * 0.6)!;
+      canvas.drawRect(
+        Rect.fromLTWH(strip.rayIndex * stripWidth, stainY, stripWidth + 1, lineSpacing * 0.4),
+        stainPaint,
+      );
+    }
+
+    // Vertical crack lines
     if (strip.textureX > 0.3 && strip.textureX < 0.35) {
       final crackPaint = Paint()
         ..color = Colors.black.withOpacity(alpha.clamp(0, 0.25))
@@ -293,17 +305,17 @@ class RaycastPainter extends CustomPainter {
     }
   }
 
-  /// Bloody wall: drips and smears
+  /// Bloody wall: drips, smears, and handprints
   void _textureBloody(Canvas canvas, WallStrip strip,
       double wallTop, double wallBottom, double stripWidth, double alpha) {
     final rng = math.Random(strip.hitX.toInt() * 97 + strip.hitY.toInt());
 
-    // Blood drips
-    final numDrips = rng.nextInt(4) + 1;
+    // Blood drips (vertical streaks)
+    final numDrips = rng.nextInt(5) + 1;
     for (var i = 0; i < numDrips; i++) {
       final dripX = strip.rayIndex * stripWidth + rng.nextDouble() * stripWidth;
       final dripStart = wallTop + (wallBottom - wallTop) * rng.nextDouble() * 0.3;
-      final dripLength = (wallBottom - wallTop) * (0.15 + rng.nextDouble() * 0.4);
+      final dripLength = (wallBottom - wallTop) * (0.15 + rng.nextDouble() * 0.5);
 
       final bloodPaint = Paint()
         ..color = Color.lerp(Colors.transparent, const Color(0xFF660000), alpha * 2)!;
@@ -315,13 +327,23 @@ class RaycastPainter extends CustomPainter {
     }
 
     // Blood smear (horizontal)
-    if (rng.nextDouble() > 0.5) {
+    if (rng.nextDouble() > 0.4) {
       final smearY = wallTop + (wallBottom - wallTop) * (0.2 + rng.nextDouble() * 0.6);
       final smearPaint = Paint()
-        ..color = Color.lerp(Colors.transparent, const Color(0xFF880000), alpha)!;
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF880000), alpha * 1.2)!;
       canvas.drawRect(
-        Rect.fromLTWH(strip.rayIndex * stripWidth, smearY, stripWidth + 1, 2),
+        Rect.fromLTWH(strip.rayIndex * stripWidth, smearY, stripWidth + 1, 3),
         smearPaint,
+      );
+    }
+
+    // Blood splash/pool at bottom
+    if (rng.nextDouble() > 0.6) {
+      final poolPaint = Paint()
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF550000), alpha * 1.5)!;
+      canvas.drawRect(
+        Rect.fromLTWH(strip.rayIndex * stripWidth, wallBottom - (wallBottom - wallTop) * 0.15, stripWidth + 1, (wallBottom - wallTop) * 0.15),
+        poolPaint,
       );
     }
   }
@@ -347,18 +369,30 @@ class RaycastPainter extends CustomPainter {
 
     // Rust spots
     final rng = math.Random(strip.hitX.toInt() * 31 + strip.hitY.toInt());
-    if (rng.nextDouble() > 0.6) {
+    if (rng.nextDouble() > 0.5) {
       final rustY = wallTop + rng.nextDouble() * (wallBottom - wallTop);
       final rustPaint = Paint()
         ..color = Color.lerp(Colors.transparent, const Color(0xFF6A4A2A), alpha * 1.5)!;
       canvas.drawRect(
-        Rect.fromLTWH(strip.rayIndex * stripWidth, rustY, stripWidth + 1, 4),
+        Rect.fromLTWH(strip.rayIndex * stripWidth, rustY, stripWidth + 1, 5),
         rustPaint,
+      );
+    }
+
+    // Vertical weld line
+    if (strip.textureX > 0.45 && strip.textureX < 0.55) {
+      final weldPaint = Paint()
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF4A3A2A), alpha)!
+        ..strokeWidth = 2;
+      canvas.drawLine(
+        Offset(strip.rayIndex * stripWidth + stripWidth / 2, wallTop),
+        Offset(strip.rayIndex * stripWidth + stripWidth / 2, wallBottom),
+        weldPaint,
       );
     }
   }
 
-  /// Door frame: distinct border pattern
+  /// Door frame: distinct border pattern with detail
   void _textureDoorFrame(Canvas canvas, WallStrip strip,
       double wallTop, double wallBottom, double stripWidth, double alpha) {
     // Frame border lines
@@ -384,6 +418,24 @@ class RaycastPainter extends CustomPainter {
       ),
       handlePaint,
     );
+
+    // Door panel lines
+    final panelPaint = Paint()
+      ..color = Color.lerp(Colors.transparent, const Color(0xFF2A1010), alpha)!
+      ..strokeWidth = 1;
+
+    final panelY1 = wallTop + (wallBottom - wallTop) * 0.3;
+    final panelY2 = wallTop + (wallBottom - wallTop) * 0.7;
+    canvas.drawLine(
+      Offset(strip.rayIndex * stripWidth, panelY1),
+      Offset((strip.rayIndex + 1) * stripWidth, panelY1),
+      panelPaint,
+    );
+    canvas.drawLine(
+      Offset(strip.rayIndex * stripWidth, panelY2),
+      Offset((strip.rayIndex + 1) * stripWidth, panelY2),
+      panelPaint,
+    );
   }
 
   /// Cracked wall: irregular cracks
@@ -406,6 +458,17 @@ class RaycastPainter extends CustomPainter {
         x = nextX;
         y = nextY;
       }
+    }
+
+    // Plaster falling off effect
+    if (rng.nextDouble() > 0.7) {
+      final patchY = wallTop + (wallBottom - wallTop) * rng.nextDouble();
+      final patchPaint = Paint()
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF5A5A4A), alpha * 0.5)!;
+      canvas.drawRect(
+        Rect.fromLTWH(strip.rayIndex * stripWidth, patchY, stripWidth + 1, (wallBottom - wallTop) * 0.08),
+        patchPaint,
+      );
     }
   }
 
@@ -468,15 +531,16 @@ class RaycastPainter extends CustomPainter {
     }
   }
 
-  /// Dirty tile wall: grid pattern
+  /// Dirty tile wall: hospital grid pattern with grout and stains
   void _textureTile(Canvas canvas, WallStrip strip,
       double wallTop, double wallBottom, double stripWidth, double alpha) {
     final gridSize = (wallBottom - wallTop) / 6;
     if (gridSize < 5) return;
 
+    // Tile grout lines (dirty brown/grey)
     final gridPaint = Paint()
-      ..color = Colors.black.withOpacity(alpha.clamp(0, 0.2))
-      ..strokeWidth = 0.5;
+      ..color = Color.lerp(Colors.transparent, const Color(0xFF2A2A28), alpha * 1.2)!
+      ..strokeWidth = 1.5;
 
     // Horizontal tile lines
     for (var y = wallTop; y < wallBottom; y += gridSize) {
@@ -486,28 +550,49 @@ class RaycastPainter extends CustomPainter {
         gridPaint,
       );
     }
+
+    // Vertical tile lines (offset every other row for brick-like tile pattern)
+    final tileIndex = (strip.textureX * 4).floor();
+    final offset = (tileIndex % 2 == 0) ? 0.0 : stripWidth * 0.5;
+    canvas.drawLine(
+      Offset(strip.rayIndex * stripWidth + offset, wallTop),
+      Offset(strip.rayIndex * stripWidth + offset, wallBottom),
+      gridPaint..strokeWidth = 1,
+    );
+
+    // Water stain / mold patches
+    final rng = math.Random(strip.hitX.toInt() * 41 + strip.hitY.toInt());
+    if (rng.nextDouble() > 0.5) {
+      final stainY = wallTop + rng.nextDouble() * (wallBottom - wallTop) * 0.5;
+      final stainPaint = Paint()
+        ..color = Color.lerp(Colors.transparent, const Color(0xFF3A3A20), alpha * 0.5)!;
+      canvas.drawRect(
+        Rect.fromLTWH(strip.rayIndex * stripWidth, stainY, stripWidth + 1, gridSize * 0.6),
+        stainPaint,
+      );
+    }
   }
 
-  /// Brick wall: brick pattern with mortar
+  /// Brick wall: detailed brick pattern with mortar and variation
   void _textureBrick(Canvas canvas, WallStrip strip,
       double wallTop, double wallBottom, double stripWidth, double alpha) {
     final brickHeight = (wallBottom - wallTop) / 8;
     if (brickHeight < 4) return;
 
+    // Mortar color - greyish
     final mortarPaint = Paint()
-      ..color = Color.lerp(Colors.transparent, const Color(0xFF3A3A3A), alpha)!;
+      ..color = Color.lerp(Colors.transparent, const Color(0xFF3A3A3A), alpha * 1.2)!;
 
     // Horizontal mortar lines
     for (var y = wallTop; y < wallBottom; y += brickHeight) {
       canvas.drawLine(
         Offset(strip.rayIndex * stripWidth, y),
         Offset((strip.rayIndex + 1) * stripWidth, y),
-        mortarPaint..strokeWidth = 1,
+        mortarPaint..strokeWidth = 1.5,
       );
     }
 
-    // Vertical mortar lines (offset every other row)
-    final brickIndex = strip.rayIndex;
+    // Vertical mortar lines (offset every other row - proper brick pattern)
     for (var i = 0; i < 8; i++) {
       final y = wallTop + i * brickHeight;
       final offset = (i % 2 == 0) ? 0.0 : stripWidth * 0.5;
@@ -515,12 +600,47 @@ class RaycastPainter extends CustomPainter {
       canvas.drawLine(
         Offset(x, y),
         Offset(x, y + brickHeight),
-        mortarPaint..strokeWidth = 0.5,
+        mortarPaint..strokeWidth = 1,
+      );
+    }
+
+    // Brick color variation (some bricks are slightly different shade)
+    final rng = math.Random(strip.hitX.toInt() * 67 + strip.hitY.toInt() * 13);
+    if (rng.nextDouble() > 0.7) {
+      final brickRow = rng.nextInt(8);
+      final variationPaint = Paint()
+        ..color = Color.lerp(
+          Colors.transparent,
+          rng.nextDouble() > 0.5 ? const Color(0xFF7A5A4A) : const Color(0xFF5A4030),
+          alpha * 0.5,
+        )!;
+      canvas.drawRect(
+        Rect.fromLTWH(
+          strip.rayIndex * stripWidth,
+          wallTop + brickRow * brickHeight + 1,
+          stripWidth + 1,
+          brickHeight - 2,
+        ),
+        variationPaint,
+      );
+    }
+
+    // Damaged/broken brick
+    if (rng.nextDouble() > 0.85) {
+      final crackPaint = Paint()
+        ..color = Colors.black.withOpacity(alpha.clamp(0, 0.3))
+        ..strokeWidth = 1;
+      final startY = wallTop + rng.nextDouble() * (wallBottom - wallTop);
+      canvas.drawLine(
+        Offset(strip.rayIndex * stripWidth, startY),
+        Offset((strip.rayIndex + 1) * stripWidth, startY + brickHeight * 0.5),
+        crackPaint,
       );
     }
   }
 
-  /// Draw ghost as a 2D billboard sprite
+  /// Draw ghost as an animated 2D billboard sprite
+  /// Features: Swaying animation, flowing hair, glowing eyes, glitch distortion
   void _drawGhostSprite(Canvas canvas, Size size, List<WallStrip> strips, double stripWidth) {
     final ghost = gameState.ghost;
     if (!ghost.isVisible) return;
@@ -540,32 +660,39 @@ class RaycastPainter extends CustomPainter {
     if (angleToGhost.abs() > RaycastEngine.halfFov + 0.2) return;
 
     final screenX = size.width / 2 + (angleToGhost / RaycastEngine.halfFov) * (size.width / 2);
-    final spriteHeight = size.height / distance * 0.8; // Tall ghost
-    final spriteWidth = spriteHeight * 0.4; // Thin ghost
+    final spriteHeight = size.height / distance * 0.9; // Taller ghost
+    final spriteWidth = spriteHeight * 0.45; // Thin ghost
 
     // Occlusion check
     final rayIndex = (screenX / stripWidth).floor().clamp(0, strips.length - 1);
     if (strips[rayIndex].distance < distance - 0.5) return;
 
-    final spriteY = size.height / 2 - spriteHeight / 2 + spriteHeight * 0.1;
+    final spriteY = size.height / 2 - spriteHeight / 2 + player.bobAmount + spriteHeight * 0.05;
     final fogFactor = (1.0 - distance / RaycastEngine.maxDepth).clamp(0.1, 1.0);
 
-    // Glitch effect: ghost flickers horizontally
-    final glitchOffset = math.sin(ghost.flickerTimer * 15) * ghost.horrorIntensity * 8;
+    // === ANIMATION ===
+    // Swaying motion - ghost sways side to side
+    final swayAmount = math.sin(gameState.gameTime * 2.5) * spriteWidth * 0.08;
+    // Vertical bobbing - ghost hovers
+    final bobOffset = math.sin(gameState.gameTime * 1.8) * spriteHeight * 0.02;
+    // Glitch horizontal displacement
+    final glitchOffset = math.sin(ghost.flickerTimer * 15) * ghost.horrorIntensity * 10;
 
-    // Ghost body - white/gray gown
+    final cx = screenX + swayAmount + glitchOffset;
+    final topY = spriteY + bobOffset;
+    final bottomY = topY + spriteHeight;
+
+    // === GHOST BODY (white/gray flowing gown) ===
+    final bodyAlpha = fogFactor * 0.75;
     final bodyPaint = Paint()
       ..color = Color.lerp(
         const Color(0xFF000000),
         const Color(0xFFD0D0E8),
-        fogFactor * 0.7,
+        bodyAlpha,
       )!;
 
-    // Draw ghost body (long gown shape)
+    // Body path - flowing gown shape with animation
     final bodyPath = Path();
-    final cx = screenX + glitchOffset;
-    final topY = spriteY;
-    final bottomY = spriteY + spriteHeight;
 
     // Head
     bodyPath.addOval(Rect.fromCenter(
@@ -574,35 +701,85 @@ class RaycastPainter extends CustomPainter {
       height: spriteHeight * 0.12,
     ));
 
-    // Body (tapered gown)
-    bodyPath.moveTo(cx - spriteWidth * 0.3, topY + spriteHeight * 0.15);
-    bodyPath.lineTo(cx - spriteWidth * 0.5, bottomY);
-    bodyPath.lineTo(cx + spriteWidth * 0.5, bottomY);
-    bodyPath.lineTo(cx + spriteWidth * 0.3, topY + spriteHeight * 0.15);
+    // Neck to shoulders
+    bodyPath.moveTo(cx - spriteWidth * 0.25, topY + spriteHeight * 0.14);
+    bodyPath.lineTo(cx - spriteWidth * 0.35, topY + spriteHeight * 0.18);
+
+    // Left side of gown (flowing with animation)
+    final gownSway1 = math.sin(gameState.gameTime * 3.0) * spriteWidth * 0.05;
+    bodyPath.quadraticBezierTo(
+      cx - spriteWidth * 0.45 + gownSway1, topY + spriteHeight * 0.5,
+      cx - spriteWidth * 0.55, bottomY,
+    );
+
+    // Bottom hem (wavy)
+    bodyPath.quadraticBezierTo(
+      cx - spriteWidth * 0.2, bottomY + spriteHeight * 0.02 + math.sin(gameState.gameTime * 4) * 3,
+      cx, bottomY,
+    );
+    bodyPath.quadraticBezierTo(
+      cx + spriteWidth * 0.2, bottomY + spriteHeight * 0.02 + math.sin(gameState.gameTime * 4 + 1) * 3,
+      cx + spriteWidth * 0.55, bottomY,
+    );
+
+    // Right side of gown
+    final gownSway2 = math.sin(gameState.gameTime * 3.0 + 1) * spriteWidth * 0.05;
+    bodyPath.quadraticBezierTo(
+      cx + spriteWidth * 0.45 + gownSway2, topY + spriteHeight * 0.5,
+      cx + spriteWidth * 0.35, topY + spriteHeight * 0.18,
+    );
+
+    bodyPath.lineTo(cx + spriteWidth * 0.25, topY + spriteHeight * 0.14);
     bodyPath.close();
 
     canvas.drawPath(bodyPath, bodyPaint);
 
-    // Dark hair (cascading down)
+    // === DARK HAIR (cascading down with flowing animation) ===
     final hairPaint = Paint()
       ..color = Color.lerp(
         const Color(0xFF000000),
         const Color(0xFF1A1A2A),
-        fogFactor * 0.8,
+        fogFactor * 0.85,
       )!;
 
-    canvas.drawRect(
-      Rect.fromLTWH(cx - spriteWidth * 0.35, topY + spriteHeight * 0.06,
-          spriteWidth * 0.3, spriteHeight * 0.3),
-      hairPaint,
+    // Left hair strand (animated)
+    final hairSway1 = math.sin(gameState.gameTime * 2.0) * spriteWidth * 0.04;
+    final hairPath1 = Path();
+    hairPath1.moveTo(cx - spriteWidth * 0.2, topY + spriteHeight * 0.04);
+    hairPath1.quadraticBezierTo(
+      cx - spriteWidth * 0.35 + hairSway1, topY + spriteHeight * 0.15,
+      cx - spriteWidth * 0.3 + hairSway1 * 1.5, topY + spriteHeight * 0.35,
     );
+    hairPath1.lineTo(cx - spriteWidth * 0.15 + hairSway1 * 0.5, topY + spriteHeight * 0.35);
+    hairPath1.quadraticBezierTo(
+      cx - spriteWidth * 0.2, topY + spriteHeight * 0.15,
+      cx - spriteWidth * 0.1, topY + spriteHeight * 0.04,
+    );
+    canvas.drawPath(hairPath1, hairPaint);
+
+    // Right hair strand (animated, offset phase)
+    final hairSway2 = math.sin(gameState.gameTime * 2.0 + 0.8) * spriteWidth * 0.04;
+    final hairPath2 = Path();
+    hairPath2.moveTo(cx + spriteWidth * 0.1, topY + spriteHeight * 0.04);
+    hairPath2.quadraticBezierTo(
+      cx + spriteWidth * 0.25 + hairSway2, topY + spriteHeight * 0.15,
+      cx + spriteWidth * 0.2 + hairSway2 * 1.5, topY + spriteHeight * 0.35,
+    );
+    hairPath2.lineTo(cx + spriteWidth * 0.05 + hairSway2 * 0.5, topY + spriteHeight * 0.35);
+    hairPath2.quadraticBezierTo(
+      cx + spriteWidth * 0.1, topY + spriteHeight * 0.15,
+      cx + spriteWidth * 0.0, topY + spriteHeight * 0.04,
+    );
+    canvas.drawPath(hairPath2, hairPaint);
+
+    // Center hair (covering face partially)
     canvas.drawRect(
-      Rect.fromLTWH(cx + spriteWidth * 0.05, topY + spriteHeight * 0.06,
-          spriteWidth * 0.3, spriteHeight * 0.3),
+      Rect.fromLTWH(cx - spriteWidth * 0.08, topY + spriteHeight * 0.03,
+          spriteWidth * 0.16, spriteHeight * 0.2),
       hairPaint,
     );
 
-    // Glowing eyes
+    // === GLOWING EYES ===
     final eyeGlow = math.sin(gameState.gameTime * 5) * 0.3 + 0.7;
     final eyePaint = Paint()
       ..color = Color.lerp(
@@ -611,24 +788,84 @@ class RaycastPainter extends CustomPainter {
         fogFactor * eyeGlow,
       )!;
 
+    // Left eye
     canvas.drawOval(
       Rect.fromCenter(
         center: Offset(cx - spriteWidth * 0.12, topY + spriteHeight * 0.08),
-        width: spriteWidth * 0.12,
+        width: spriteWidth * 0.13,
         height: spriteHeight * 0.04,
       ),
       eyePaint,
     );
+    // Right eye
     canvas.drawOval(
       Rect.fromCenter(
         center: Offset(cx + spriteWidth * 0.12, topY + spriteHeight * 0.08),
-        width: spriteWidth * 0.12,
+        width: spriteWidth * 0.13,
         height: spriteHeight * 0.04,
       ),
       eyePaint,
     );
 
-    // Ghost distortion effect (horizontal glitch lines near ghost)
+    // Eye glow effect (soft red light around eyes)
+    if (fogFactor > 0.3) {
+      final glowPaint = Paint()
+        ..color = Color.lerp(
+          Colors.transparent,
+          const Color(0xFFFF0000),
+          fogFactor * eyeGlow * 0.15,
+        )!;
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(cx, topY + spriteHeight * 0.08),
+          width: spriteWidth * 0.6,
+          height: spriteHeight * 0.1,
+        ),
+        glowPaint,
+      );
+    }
+
+    // === GHOST ARMS (reaching forward when chasing) ===
+    if (ghost.state == GhostState.chase || ghost.horrorIntensity > 0.5) {
+      final armPaint = Paint()
+        ..color = Color.lerp(
+          const Color(0xFF000000),
+          const Color(0xFFB0B0C8),
+          fogFactor * 0.6,
+        )!;
+
+      // Left arm reaching
+      final armSway = math.sin(gameState.gameTime * 4) * spriteWidth * 0.05;
+      final armPath = Path();
+      armPath.moveTo(cx - spriteWidth * 0.3, topY + spriteHeight * 0.2);
+      armPath.quadraticBezierTo(
+        cx - spriteWidth * 0.6 + armSway, topY + spriteHeight * 0.3,
+        cx - spriteWidth * 0.7 + armSway, topY + spriteHeight * 0.45,
+      );
+      armPath.lineTo(cx - spriteWidth * 0.55 + armSway, topY + spriteHeight * 0.47);
+      armPath.quadraticBezierTo(
+        cx - spriteWidth * 0.45, topY + spriteHeight * 0.32,
+        cx - spriteWidth * 0.2, topY + spriteHeight * 0.22,
+      );
+      canvas.drawPath(armPath, armPaint);
+
+      // Right arm reaching (opposite phase)
+      final armSway2 = math.sin(gameState.gameTime * 4 + math.pi) * spriteWidth * 0.05;
+      final armPath2 = Path();
+      armPath2.moveTo(cx + spriteWidth * 0.3, topY + spriteHeight * 0.2);
+      armPath2.quadraticBezierTo(
+        cx + spriteWidth * 0.6 + armSway2, topY + spriteHeight * 0.3,
+        cx + spriteWidth * 0.7 + armSway2, topY + spriteHeight * 0.45,
+      );
+      armPath2.lineTo(cx + spriteWidth * 0.55 + armSway2, topY + spriteHeight * 0.47);
+      armPath2.quadraticBezierTo(
+        cx + spriteWidth * 0.45, topY + spriteHeight * 0.32,
+        cx + spriteWidth * 0.2, topY + spriteHeight * 0.22,
+      );
+      canvas.drawPath(armPath2, armPaint);
+    }
+
+    // === GHOST DISTORTION EFFECT ===
     if (ghost.horrorIntensity > 0.3) {
       final rng = math.Random(frameCount ~/ 3);
       final glitchLinePaint = Paint()
@@ -638,12 +875,12 @@ class RaycastPainter extends CustomPainter {
           ghost.horrorIntensity * 0.2,
         )!;
 
-      for (var i = 0; i < 3; i++) {
-        final gy = spriteY + rng.nextDouble() * spriteHeight;
+      for (var i = 0; i < 4; i++) {
+        final gy = topY + rng.nextDouble() * spriteHeight;
         final gx = screenX - spriteWidth + rng.nextDouble() * spriteWidth * 2;
         canvas.drawLine(
-          Offset(gx - 10, gy),
-          Offset(gx + 10, gy),
+          Offset(gx - 15, gy),
+          Offset(gx + 15, gy),
           glitchLinePaint,
         );
       }
@@ -674,7 +911,7 @@ class RaycastPainter extends CustomPainter {
       final rayIndex = (screenX / stripWidth).floor().clamp(0, strips.length - 1);
       if (strips[rayIndex].distance < distance) continue;
 
-      final spriteY = size.height / 2 - spriteHeight / 2;
+      final spriteY = size.height / 2 - spriteHeight / 2 + gameState.player.bobAmount;
       final fogFactor = (1.0 - distance / RaycastEngine.maxDepth).clamp(0.1, 1.0);
 
       switch (obj.type) {
@@ -796,25 +1033,83 @@ class RaycastPainter extends CustomPainter {
     canvas.drawRect(Rect.fromLTWH(x, y, width + 1, height), Paint()..color = ceilColor);
   }
 
-  void _drawVignette(Canvas canvas, Size size) {
+  /// ENHANCED Flashlight Vignette - dramatic dark overlay with circular light
+  /// Creates the "only what the flashlight illuminates is visible" effect
+  void _drawFlashlightVignette(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
+
+    final ghost = gameState.ghost;
+    final flashlight = gameState.flashlight;
     final intensity = gameState.cameraGlitchIntensity;
-    final baseRadius = 1.0 - intensity * 0.3; // Tighter vignette when ghost near
+
+    // Base vignette tightness depends on flashlight state
+    double baseRadius;
+    List<double> stops;
+    List<Color> colors;
+
+    if (flashlight.isOn && !flashlight.isFlickering) {
+      // Flashlight ON: Bright center, dark edges
+      // Tighter cone when ghost is near
+      baseRadius = 0.75 - intensity * 0.2;
+      stops = const [0.0, 0.25, 0.5, 0.7, 0.85, 1.0];
+      colors = [
+        Colors.transparent,                                    // Center: clear
+        Colors.transparent,                                    // Inner: clear
+        Colors.black.withOpacity(0.15 + intensity * 0.1),     // Mid: slight dark
+        Colors.black.withOpacity(0.4 + intensity * 0.15),     // Outer-mid: darker
+        Colors.black.withOpacity(0.7 + intensity * 0.15),     // Outer: very dark
+        Colors.black.withOpacity(0.85 + intensity * 0.1),     // Edge: near black
+      ];
+    } else if (flashlight.isFlickering) {
+      // Flashlight FLICKERING: Unstable light
+      final flickerPhase = math.sin(gameState.gameTime * 20) * 0.5 + 0.5;
+      baseRadius = 0.5 - flickerPhase * 0.2 - intensity * 0.15;
+      stops = const [0.0, 0.2, 0.4, 0.65, 0.85, 1.0];
+      colors = [
+        Colors.transparent,
+        Colors.black.withOpacity(0.1 * flickerPhase),
+        Colors.black.withOpacity(0.3 + flickerPhase * 0.2),
+        Colors.black.withOpacity(0.6 + flickerPhase * 0.15),
+        Colors.black.withOpacity(0.8),
+        Colors.black.withOpacity(0.9),
+      ];
+    } else {
+      // Flashlight OFF: Very dark, barely visible
+      baseRadius = 0.35 - intensity * 0.1;
+      stops = const [0.0, 0.15, 0.35, 0.6, 0.85, 1.0];
+      colors = [
+        Colors.black.withOpacity(0.1),
+        Colors.black.withOpacity(0.3),
+        Colors.black.withOpacity(0.55),
+        Colors.black.withOpacity(0.75),
+        Colors.black.withOpacity(0.9),
+        Colors.black.withOpacity(0.95),
+      ];
+    }
 
     final paint = Paint()
       ..shader = RadialGradient(
         center: Alignment.center,
         radius: baseRadius,
-        colors: [
-          Colors.transparent,
-          Colors.black.withOpacity(0.05 + intensity * 0.15),
-          Colors.black.withOpacity(0.15 + intensity * 0.2),
-          Colors.black.withOpacity(0.3 + intensity * 0.3),
-        ],
-        stops: const [0.0, 0.65, 0.85, 1.0],
+        colors: colors,
+        stops: stops,
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
+
+    // Additional corner darkness for extra horror atmosphere
+    final cornerPaint = Paint()
+      ..shader = RadialGradient(
+        center: Alignment.center,
+        radius: 1.2,
+        colors: [
+          Colors.transparent,
+          Colors.black.withOpacity(0.1 + intensity * 0.1),
+          Colors.black.withOpacity(0.2 + intensity * 0.15),
+        ],
+        stops: const [0.5, 0.75, 1.0],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), cornerPaint);
   }
 
   void _drawDebugInfo(Canvas canvas, Size size) {

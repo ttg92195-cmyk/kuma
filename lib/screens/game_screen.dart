@@ -28,7 +28,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Timer? _gameLoop;
   final AudioManager _audioManager = AudioManager();
 
-  // Touch look tracking
+  // Touch look tracking (right side only)
   Offset? _touchStart;
   Offset? _touchCurrent;
 
@@ -83,7 +83,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           _hasStartedPlaying = true;
 
           // Apply movement from joystick
-          if (_moveX.abs() > 0.1 || _moveY.abs() > 0.1) {
+          if (_moveX.abs() > 0.08 || _moveY.abs() > 0.08) {
             gameState.player.applyJoystickInput(
               _moveX, _moveY, 0.033, gameState.canWalk,
             );
@@ -135,6 +135,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+
     return PopScope(
       canPop: false,
       onPopInvoked: (_) {
@@ -183,8 +185,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   inventory: gameState.inventory,
                 ),
 
-                // 4. Touch look area
-                Positioned.fill(
+                // 4. Touch look area - RIGHT SIDE ONLY for camera rotation
+                // Left side is reserved for joystick
+                Positioned(
+                  top: 0,
+                  left: screenWidth * 0.35, // Only right 65% of screen for look
+                  right: 0,
+                  bottom: 120, // Leave space for bottom controls
                   child: GestureDetector(
                     onPanStart: (details) {
                       _touchStart = details.globalPosition;
@@ -206,19 +213,25 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ),
                 ),
 
-                // 5. Interaction prompt
+                // 5. Interaction prompt - TOP CENTER (not blocking main view)
                 if (gameState.canInteract)
-                  Positioned.fill(
+                  Positioned(
+                    top: 100,
+                    left: 0,
+                    right: 0,
                     child: InteractionPrompt(gameState: gameState),
                   ),
 
-                // 6. Message overlay
+                // 6. Message overlay - TOP CENTER
                 if (gameState.currentMessage != null)
-                  Positioned.fill(
+                  Positioned(
+                    top: 140,
+                    left: 20,
+                    right: 20,
                     child: MessageOverlay(message: gameState.currentMessage),
                   ),
 
-                // 7. Note overlay
+                // 7. Note overlay (stays centered - it's a full reading screen)
                 if (gameState.showNoteOverlay)
                   Positioned.fill(
                     child: NoteOverlay(
@@ -232,11 +245,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 if (gameState.jumpscareActive)
                   Positioned.fill(child: _JumpscareOverlay()),
 
-                // 9. Bottom controls
+                // 9. Bottom controls - REDESIGNED for mobile gaming
                 Positioned(
-                  bottom: 20,
-                  left: 20,
-                  right: 20,
+                  bottom: 15,
+                  left: 10,
+                  right: 10,
                   child: _BottomControls(
                     gameState: gameState,
                     onMove: (x, y) {
@@ -367,7 +380,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 }
 
-/// Bottom control panel
+/// Bottom control panel - REDESIGNED for mobile gaming comfort
+/// Layout:
+///   LEFT: Joystick (large, easy to use)
+///   RIGHT: Column of buttons (E interact, Run, Flashlight, Pause) stacked vertically
 class _BottomControls extends StatelessWidget {
   final GameState gameState;
   final void Function(double x, double y) onMove;
@@ -388,56 +404,109 @@ class _BottomControls extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        JoystickWidget(onMove: onMove, size: 130, accentColor: const Color(0xFF8B0000)),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (gameState.canInteract)
+        // LEFT SIDE: Joystick (large for comfort)
+        Padding(
+          padding: const EdgeInsets.only(left: 5),
+          child: JoystickWidget(
+            onMove: onMove,
+            size: 150,  // Bigger joystick for easier control
+            accentColor: const Color(0xFF8B0000),
+          ),
+        ),
+
+        // RIGHT SIDE: Action buttons stacked vertically
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // E - Interact button (most important, largest)
+              if (gameState.canInteract)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: GestureDetector(
+                    onTap: onInteract,
+                    child: Container(
+                      width: 60, height: 60,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF8B0000).withOpacity(0.4),
+                        border: Border.all(color: const Color(0xFFFF0000), width: 2.5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFFF0000).withOpacity(0.4),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Text('E',
+                          style: TextStyle(
+                            color: Color(0xFFFF0000),
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Courier',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Run + Flashlight row
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Run button
+                  GestureDetector(
+                    onLongPressStart: (_) => onRunToggle(),
+                    onLongPressEnd: (_) => onRunToggle(),
+                    child: Container(
+                      width: 48, height: 48,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: gameState.player.isRunning ? Colors.orange.withOpacity(0.35) : Colors.black38,
+                        border: Border.all(
+                          color: gameState.player.isRunning ? Colors.orange : Colors.white24,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.directions_run,
+                        color: gameState.player.isRunning ? Colors.orange : Colors.white24,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Flashlight button
+                  FlashlightButton(
+                    isOn: gameState.flashlight.isOn,
+                    batteryLevel: gameState.flashlight.batteryLevel,
+                    onToggle: onFlashlightToggle,
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 6),
+
+              // Pause button (small, out of the way)
               GestureDetector(
-                onTap: onInteract,
+                onTap: onPause,
                 child: Container(
-                  width: 55, height: 55,
+                  width: 36, height: 36,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFF8B0000).withOpacity(0.3),
-                    border: Border.all(color: const Color(0xFFFF0000), width: 2),
-                    boxShadow: [BoxShadow(color: const Color(0xFFFF0000).withOpacity(0.3), blurRadius: 15)],
+                    color: Colors.black26,
+                    border: Border.all(color: Colors.white12, width: 1),
                   ),
-                  child: const Center(
-                    child: Text('E', style: TextStyle(color: Color(0xFFFF0000), fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
-                  ),
+                  child: const Icon(Icons.pause, color: Colors.white24, size: 16),
                 ),
               ),
-            const SizedBox(height: 10),
-            GestureDetector(
-              onLongPressStart: (_) => onRunToggle(),
-              onLongPressEnd: (_) => onRunToggle(),
-              child: Container(
-                width: 45, height: 45,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: gameState.player.isRunning ? Colors.orange.withOpacity(0.3) : Colors.black26,
-                  border: Border.all(color: gameState.player.isRunning ? Colors.orange : Colors.white24, width: 1),
-                ),
-                child: Icon(Icons.directions_run, color: gameState.player.isRunning ? Colors.orange : Colors.white24, size: 20),
-              ),
-            ),
-          ],
-        ),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FlashlightButton(isOn: gameState.flashlight.isOn, batteryLevel: gameState.flashlight.batteryLevel, onToggle: onFlashlightToggle),
-            const SizedBox(height: 10),
-            GestureDetector(
-              onTap: onPause,
-              child: Container(
-                width: 40, height: 40,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.black26, border: Border.all(color: Colors.white12, width: 1)),
-                child: const Icon(Icons.pause, color: Colors.white24, size: 18),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );

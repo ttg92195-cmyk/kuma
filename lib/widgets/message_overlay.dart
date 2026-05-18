@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Message display widget for game messages
+/// Positioned at TOP area (called from game_screen with top positioning)
 class MessageOverlay extends StatelessWidget {
   final String? message;
   final Color color;
@@ -16,25 +17,22 @@ class MessageOverlay extends StatelessWidget {
     if (message == null) return const SizedBox.shrink();
 
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 180),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.black87,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: color.withOpacity(0.3), width: 1),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black87,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withOpacity(0.3), width: 1),
+        ),
+        child: Text(
+          message!,
+          style: TextStyle(
+            color: color,
+            fontSize: 13,
+            fontFamily: 'Courier',
+            fontWeight: FontWeight.bold,
           ),
-          child: Text(
-            message!,
-            style: TextStyle(
-              color: color,
-              fontSize: 14,
-              fontFamily: 'Courier',
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-          ),
+          textAlign: TextAlign.center,
         ),
       ),
     );
