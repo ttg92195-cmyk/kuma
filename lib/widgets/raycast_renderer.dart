@@ -1402,6 +1402,7 @@ class RaycastPainter extends CustomPainter {
       case GhostState.chase: ghostStateStr = 'CHASE';
       case GhostState.lost: ghostStateStr = 'LOST';
       case GhostState.stalking: ghostStateStr = 'STALK';
+      case GhostState.noiseAlert: ghostStateStr = 'NOISE!';
     }
 
     final debugText =
